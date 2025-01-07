@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "_deps/volk-build",
+		"source" : "cmake-build-debug-visual-studio/_deps/volk-src"
+	}
+}

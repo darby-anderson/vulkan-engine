@@ -1,0 +1,14 @@
+# Target labels
+ stb-populate
+# Source files and their labels
+E:/vulkan_engine_portfolio/cmake-build-debug-visual-studio/_deps/stb-subbuild/CMakeFiles/stb-populate
+E:/vulkan_engine_portfolio/cmake-build-debug-visual-studio/_deps/stb-subbuild/CMakeFiles/stb-populate.rule
+E:/vulkan_engine_portfolio/cmake-build-debug-visual-studio/_deps/stb-subbuild/CMakeFiles/stb-populate-complete.rule
+E:/vulkan_engine_portfolio/cmake-build-debug-visual-studio/_deps/stb-subbuild/stb-populate-prefix/src/stb-populate-stamp/stb-populate-build.rule
+E:/vulkan_engine_portfolio/cmake-build-debug-visual-studio/_deps/stb-subbuild/stb-populate-prefix/src/stb-populate-stamp/stb-populate-configure.rule
+E:/vulkan_engine_portfolio/cmake-build-debug-visual-studio/_deps/stb-subbuild/stb-populate-prefix/src/stb-populate-stamp/stb-populate-download.rule
+E:/vulkan_engine_portfolio/cmake-build-debug-visual-studio/_deps/stb-subbuild/stb-populate-prefix/src/stb-populate-stamp/stb-populate-install.rule
+E:/vulkan_engine_portfolio/cmake-build-debug-visual-studio/_deps/stb-subbuild/stb-populate-prefix/src/stb-populate-stamp/stb-populate-mkdir.rule
+E:/vulkan_engine_portfolio/cmake-build-debug-visual-studio/_deps/stb-subbuild/stb-populate-prefix/src/stb-populate-stamp/stb-populate-patch.rule
+E:/vulkan_engine_portfolio/cmake-build-debug-visual-studio/_deps/stb-subbuild/stb-populate-prefix/src/stb-populate-stamp/stb-populate-test.rule
+E:/vulkan_engine_portfolio/cmake-build-debug-visual-studio/_deps/stb-subbuild/stb-populate-prefix/src/stb-populate-stamp/stb-populate-update.rule

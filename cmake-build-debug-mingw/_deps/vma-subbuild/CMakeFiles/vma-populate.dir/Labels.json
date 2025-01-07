@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/vma-subbuild/CMakeFiles/vma-populate"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/vma-subbuild/CMakeFiles/vma-populate.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/vma-subbuild/CMakeFiles/vma-populate-complete.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/vma-subbuild/vma-populate-prefix/src/vma-populate-stamp/vma-populate-build.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/vma-subbuild/vma-populate-prefix/src/vma-populate-stamp/vma-populate-configure.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/vma-subbuild/vma-populate-prefix/src/vma-populate-stamp/vma-populate-download.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/vma-subbuild/vma-populate-prefix/src/vma-populate-stamp/vma-populate-install.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/vma-subbuild/vma-populate-prefix/src/vma-populate-stamp/vma-populate-mkdir.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/vma-subbuild/vma-populate-prefix/src/vma-populate-stamp/vma-populate-patch.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/vma-subbuild/vma-populate-prefix/src/vma-populate-stamp/vma-populate-test.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/vma-subbuild/vma-populate-prefix/src/vma-populate-stamp/vma-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"vma-populate"
+		],
+		"name" : "vma-populate"
+	}
+}

@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/glm-subbuild/CMakeFiles/glm-populate"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/glm-subbuild/CMakeFiles/glm-populate.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/glm-subbuild/CMakeFiles/glm-populate-complete.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-build.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-configure.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-download.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-install.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-mkdir.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-patch.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-test.rule"
+		},
+		{
+			"file" : "E:/vulkan_engine_portfolio/cmake-build-debug-mingw/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"glm-populate"
+		],
+		"name" : "glm-populate"
+	}
+}

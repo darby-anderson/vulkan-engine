@@ -1,0 +1,3 @@
+12/26/24
+  - partially converted over GLTFLoader from last project
+  - still need to update draw logic and test

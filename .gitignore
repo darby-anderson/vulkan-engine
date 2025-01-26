@@ -34,3 +34,6 @@
 # folders
 cmake-build-*/
 cookbook_ref/
+.idea/
+
+notes

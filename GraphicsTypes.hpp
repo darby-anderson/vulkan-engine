@@ -15,6 +15,8 @@
     glm::vec4 color;
 };*/
 
+struct Material;
+
 struct GPUSceneData {
     glm::mat4 view;
     glm::mat4 proj;
@@ -42,8 +44,7 @@ struct alignas(16) Vertex {
     glm::vec3 normal = glm::vec3();
     uint32_t buf1 = 0;
     glm::vec4 tangent = glm::vec4();
-    glm::vec3 color = glm::vec3();
-    uint32_t buf2 = 0;
+    glm::vec4 color = glm::vec4();
     glm::vec2 texCoord = glm::vec2();
     glm::vec2 texCoord1 = glm::vec2();
     uint32_t material;
@@ -57,8 +58,9 @@ struct alignas(16) Vertex {
     }
 };
 
+// GLTF Loader data structures VVVVVV
 
-struct Material {
+struct GLTFMaterialData {
     int baseColorTextureId = -1;
     int baseColorSamplerId = -1;
     int metallicRoughnessTextureId = -1;
@@ -93,17 +95,6 @@ private:
     std::unique_ptr<std::vector<uint8_t>> ownedImageData_;
 };
 
-struct IndirectDrawDataAndMeshData {
-    uint32_t indexCount;
-    uint32_t instanceCount;
-    uint32_t firstIndex;
-    uint32_t vertexOffset;
-    uint32_t firstInstance;
-
-    uint32_t meshId;
-    int materialIndex;
-};
-
 struct Mesh {
     using Indices = uint32_t;
     std::vector<Vertex> vertices = {}; // replace with buffers?
@@ -113,23 +104,100 @@ struct Mesh {
     glm::vec3 extents;
     glm::vec3 center;
     int32_t material = -1;
+
+    std::string name;
+};
+
+struct IndirectDrawDataAndMeshData {
+    uint32_t indexCount;
+    uint32_t instanceCount;
+    uint32_t firstIndex;
+    uint32_t vertexOffset;
+    uint32_t firstInstance;
+
+    uint32_t meshId;
+
+    int materialId;
+    std::optional<std::shared_ptr<Material>> material; // where we place the loaded
 };
 
 struct Model {
     std::vector<Mesh> meshes;
-    std::vector<Material> materials;
+    std::vector<GLTFMaterialData> materials;
     std::vector<std::unique_ptr<ModelImageData>> textures;
 
     std::vector<IndirectDrawDataAndMeshData> indirectDrawDataSet;
 
+    GPUMeshBuffers mesh_buffers;
+
     uint32_t totalVertexSize = 0;
     uint32_t totalIndexSize = 0;
     uint32_t indexCount = 0;
+
+    std::string name;
 };
 
-struct DrawData {
+struct SurfaceDrawData {
+    uint32_t indexCount;
+    uint32_t instanceCount;
+    uint32_t firstIndex;
+    uint32_t vertexOffset;
+    uint32_t firstInstance;
+
+    uint32_t meshId;
+
+    int materialId;
+    std::optional<std::shared_ptr<Material>> material;
+};
+
+struct GLTFMesh {
+    std::vector<SurfaceDrawData> draw_datas;
+    GPUMeshBuffers mesh_buffers;
+};
+
+// ^^^^ GLTF Loader data structures
+
+struct MeshDrawData {
     std::string name;
 
     std::vector<IndirectDrawDataAndMeshData> submesh_datas;
     GPUMeshBuffers gpu_mesh_buffers;
+};
+
+
+enum class MaterialPassType : uint8_t {
+    MainColor,
+    Transparent,
+    Other
+};
+
+
+struct MaterialPipeline {
+    VkPipeline pipeline;
+    VkPipelineLayout layout;
+};
+
+struct MaterialInstance {
+    MaterialPipeline* pipeline;
+    VkDescriptorSet material_set;
+    MaterialPassType pass_type;
+};
+
+struct Material {
+    MaterialInstance data;
+};
+
+struct RenderObject {
+    uint32_t index_count;
+    uint32_t first_index;
+    VkBuffer index_buffer;
+
+    MaterialInstance* material;
+
+    glm::mat4 transform;
+    VkDeviceAddress vertex_buffer_address;
+};
+
+struct DrawContext {
+    std::vector<RenderObject> opaque_surfaces;
 };

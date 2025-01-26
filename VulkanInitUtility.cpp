@@ -176,7 +176,7 @@ namespace vk_init {
                 .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
                 .clearValue = {
                         .depthStencil = {
-                                .depth = 0.f
+                                .depth = 1.f
                         }
                 }
         };

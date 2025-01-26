@@ -17,11 +17,23 @@
 #include "GraphicsTypes.hpp"
 #include "GLTFLoader.hpp"
 #include "ImmediateSubmitCommandBuffer.hpp"
+#include "DescriptorWriter.hpp"
+#include "GLTFMetallic_Roughness.hpp"
+#include "SceneGraphMembers.hpp"
+#include "SimpleCamera.hpp"
 
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
 #include "imgui.h"
+#include "Input.hpp"
 
+struct EngineStats {
+    float frame_time;
+    int triangle_count;
+    int draw_call_count;
+    float scene_update_time;
+    float mesh_draw_time;
+};
 
 struct FrameData {
     VkCommandPool command_pool;
@@ -44,6 +56,8 @@ public:
 
     VulkanContext vulkan_context;
     Window window;
+    Input input_module;
+    SimpleCamera camera;
     PhysicalDevice physical_device;
     Device device;
     Swapchain swapchain;
@@ -51,7 +65,7 @@ public:
 
     AllocatedImage draw_image;
     AllocatedImage depth_image;
-    VkExtent2D draw_extent; // used to
+    VkExtent2D draw_extent;
     float render_scale = 1.0f;
 
     DescriptorAllocatorGrowable global_descriptor_allocator;
@@ -61,17 +75,28 @@ public:
     ComputePipeline gradient_pipeline;
     ComputePipeline sky_pipeline;
 
-    VkPipeline triangle_pipeline;
-    VkPipelineLayout triangle_pipeline_layout;
-
-    VkPipeline mesh_pipeline;
-    VkPipelineLayout mesh_pipeline_layout;
-
     FrameData frames[FRAME_OVERLAP];
     uint32_t frame_number;
 
     GPUSceneData scene_data;
+    // ^ uploaded to V
     VkDescriptorSetLayout gpu_scene_descriptor_set_layout;
+
+    GLTFMetallic_Roughness metal_rough_material;
+
+    // Default Data
+    GPUMeshBuffers rectangle;
+
+    AllocatedImage default_white_image;
+    AllocatedImage default_grey_image;
+    AllocatedImage default_black_image;
+    AllocatedImage error_checkerboard_image;
+
+    VkSampler default_nearest_neighbor_sampler;
+    VkSampler default_linear_sampler;
+
+    MaterialInstance default_material;
+    // End Default Data
 
     ImmediateSubmitCommandBuffer immediate_submit_command_buffer;
 
@@ -96,8 +121,6 @@ public:
 
     FrameData& get_current_frame();
 
-    GPUMeshBuffers upload_mesh(std::span<uint32_t> indices, std::span<Vertex> vertices, const std::string& mesh_name = "");
-
 private:
     void init_command_structures();
     void init_synch_objects();
@@ -107,20 +130,46 @@ private:
     void init_default_data();
     void init_imgui();
     void init_background_pipelines();
-    void init_triangle_pipeline();
-    void init_mesh_pipeline();
-    void load_models();
+
+    void load_gltf_file(const std::string& file_path, bool override_color_with_normal);
 
     void imgui_new_frame();
     void draw_background(VkCommandBuffer cmd);
     void draw_geometry(VkCommandBuffer cmd);
     void draw_imgui(VkCommandBuffer cmd, VkImageView target_image_view);
 
+
     void resize_swapchain();
 
-    // data for each set of draw calls
-    std::vector<std::shared_ptr<DrawData>> draw_datas;
+    void update_scene();
+
+    // Model Data
+    DescriptorAllocatorGrowable model_descriptor_allocator;
+
+    EngineStats stats;
+
+    DrawContext main_draw_context;
+    // std::unordered_map<std::string, std::shared_ptr<Node>> loaded_nodes;
+    std::unordered_map<std::string, std::shared_ptr<GLTFFile>> loaded_scenes;
 
     bool swapchain_resize_requested = false;
+
+
+
+//    VkPipeline triangle_pipeline;
+//    VkPipelineLayout triangle_pipeline_layout;
+//
+
+    // VkDescriptorSetLayout single_image_descriptor_set_layout;
+
+//    VkPipeline mesh_pipeline;
+//    VkPipelineLayout mesh_pipeline_layout;
+    // void init_triangle_pipeline();
+    // void init_mesh_pipeline();
+
+    // std::vector<std::shared_ptr<MeshDrawData>> test_meshes;
+    // std::vector<std::shared_ptr<Material>> test_materials;
+    // std::vector<AllocatedImage> test_textures;
+
 
 };

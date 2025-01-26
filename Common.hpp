@@ -14,6 +14,7 @@
 #include <functional>
 #include <deque>
 #include <fstream>
+#include <array>
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
@@ -24,6 +25,7 @@
 #include <glm/gtx/transform.hpp>
 #include <glm/gtc/packing.hpp>
 #include <glm/gtx/type_aligned.hpp>
+#include <glm/gtx/quaternion.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
 

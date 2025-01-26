@@ -46,7 +46,7 @@ public:
 
     void clear();
 
-    VkPipeline build_pipeline(VkDevice device);
+    VkPipeline build_pipeline(VkDevice device, const std::string& name = "");
 
 };
 

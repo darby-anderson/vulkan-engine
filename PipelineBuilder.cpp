@@ -5,6 +5,7 @@
 #include "PipelineBuilder.hpp"
 
 #include "VulkanInitUtility.hpp"
+#include "VulkanDebugUtility.hpp"
 
 void PipelineBuilder::clear() {
 
@@ -36,7 +37,7 @@ void PipelineBuilder::clear() {
 
 }
 
-VkPipeline PipelineBuilder::build_pipeline(VkDevice device) {
+VkPipeline PipelineBuilder::build_pipeline(VkDevice device, const std::string& name) {
 
     // NON-CONFIGURABLE STRUCTS
 
@@ -94,6 +95,11 @@ VkPipeline PipelineBuilder::build_pipeline(VkDevice device) {
 
     VkPipeline pipeline;
     VK_CHECK(vkCreateGraphicsPipelines(device, nullptr, 1, &pipeline_info, nullptr, &pipeline));
+
+    if(!name.empty()) {
+        vk_debug::name_resource<VkPipeline>(device, VK_OBJECT_TYPE_PIPELINE, pipeline, name.c_str());
+    }
+
     return pipeline;
 }
 

@@ -41,4 +41,15 @@ namespace vk_file {
         return true;
     }
 
+    std::string extract_file_name_from_path(const char* file_path) {
+        std::string path = std::string(file_path);
+        int last_forward_slash = path.rfind('/'); // path.find_last_of('/');
+
+        if(last_forward_slash == std::string::npos) {
+            return "";
+        }
+
+        return path.substr(last_forward_slash + 1);
+    }
+
 }

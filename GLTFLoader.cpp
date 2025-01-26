@@ -7,12 +7,412 @@
 
 #include "GLTFLoader.hpp"
 #include "Buffer.hpp"
+#include "VulkanGeneralUtility.hpp"
 
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define TINYGLTF_IMPLEMENTATION // need to define this after including GLTFLoader.hpp since it also includes tiny_gltf
 #include "tiny_gltf.h"
+
+
+// TINY GLTF CODE vvv
+//    int minFilter =
+//            -1;  // optional. -1 = no filter defined. ["NEAREST", "LINEAR",
+//    // "NEAREST_MIPMAP_NEAREST", "LINEAR_MIPMAP_NEAREST",
+//    // "NEAREST_MIPMAP_LINEAR", "LINEAR_MIPMAP_LINEAR"]
+//    int magFilter =
+//            -1;  // optional. -1 = no filter defined. ["NEAREST", "LINEAR"]
+VkFilter get_filter(int filter_id) {
+    switch(filter_id) {
+        case 0:
+            return VK_FILTER_NEAREST;
+        case 1:
+            return VK_FILTER_LINEAR;
+    }
+
+    return VK_FILTER_LINEAR;
+}
+
+VkSamplerMipmapMode get_mipmap_mode(int filter_id) {
+    switch(filter_id) {
+        case 2:
+        case 3:
+            return VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        case 4:
+        case 5:
+            return VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    }
+
+    return VK_SAMPLER_MIPMAP_MODE_LINEAR;
+}
+
+std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator allocator,
+                                                GLTFMetallic_Roughness& material_creator,
+                                                ImmediateSubmitCommandBuffer& immediate_submit_command_buffer,
+                                                AllocatedImage texture_load_error_image, VkSampler texture_load_error_sampler,
+                                                const std::string& filePath, bool override_color_with_normal) {
+
+    std::shared_ptr<GLTFFile> out_gltf = std::make_shared<GLTFFile>();
+    GLTFFile& outputModel = *out_gltf.get();
+
+    auto gltfPath = std::filesystem::current_path();
+    gltfPath /= filePath;
+
+    tinygltf::TinyGLTF loader;
+    std::shared_ptr<tinygltf::Model> tinyModel = std::make_shared<tinygltf::Model>();
+    std::string err;
+    std::string warn;
+
+    bool loadedCorrectly;
+
+    if (filePath.ends_with(".glb")) {
+        loadedCorrectly = loader.LoadBinaryFromFile(tinyModel.get(), &err, &warn, gltfPath.string());
+    } else if (filePath.ends_with(".gltf")) {
+        loadedCorrectly = loader.LoadASCIIFromFile(tinyModel.get(), &err, &warn, gltfPath.string());
+    } else {
+        fmt::print("Cannot load this type of model file\n");
+        loadedCorrectly = false;
+    }
+
+    if (!warn.empty()) {
+        fmt::print("Warn: {}\n", warn.c_str());
+    }
+
+    if (!err.empty()) {
+        fmt::print("Err: {}\n", err.c_str());
+    }
+
+    if (!loadedCorrectly) {
+        fmt::print("Failed to parse glTF\n");
+        exit(-1);
+    }
+
+
+    // Allocate descriptor pool for materials
+    std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
+            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3},
+            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},
+    };
+    out_gltf->material_descriptor_pool.init_allocator(device, tinyModel->materials.size(), sizes);
+
+    // Load samplers
+    for(tinygltf::Sampler sampler : tinyModel->samplers) {
+        VkSamplerCreateInfo info = {
+                .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                .pNext = nullptr,
+                .magFilter = get_filter(sampler.magFilter),
+                .minFilter = get_filter(sampler.minFilter),
+                .mipmapMode = get_mipmap_mode(sampler.minFilter),
+                .minLod = 0,
+                .maxLod = VK_LOD_CLAMP_NONE,
+        };
+
+        VkSampler new_sampler;
+        vkCreateSampler(device, &info, nullptr, &new_sampler);
+
+        out_gltf->samplers.push_back(new_sampler);
+    }
+
+    // Load images
+//    out_gltf->images.reserve(tinyModel->textures.size());
+//    for(int i = 0; i < tinyModel->textures.size(); i++) {
+//        tinygltf::Texture& texture = tinyModel->textures[i];
+//        tinygltf::Image& image = tinyModel->images[texture.source];
+//
+//        VkExtent3D extent = {
+//                .width = static_cast<uint32_t>(image.width),
+//                .height = static_cast<uint32_t>(image.height),
+//                .depth = 1
+//        };
+//
+//        out_gltf->images[i].init_with_data(immediate_submit_command_buffer, device, allocator, image.image.data(), extent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+//    }
+
+    out_gltf->images.resize(tinyModel->images.size());
+    for(int i = 0; i < tinyModel->images.size(); i++) {
+        tinygltf::Image& image = tinyModel->images[i];
+        VkExtent3D extent = {
+                .width = static_cast<uint32_t>(image.width),
+                .height = static_cast<uint32_t>(image.height),
+                .depth = 1
+        };
+
+        out_gltf->images[i].init_with_data(immediate_submit_command_buffer, device, allocator, image.image.data(), extent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+    }
+
+
+    // Load materials
+    size_t material_buffer_size = sizeof(GLTFMetallic_Roughness::MaterialConstants) * tinyModel->materials.size();
+    out_gltf->material_data_buffer.init(allocator, material_buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+    int material_data_index = 0;
+    auto scene_material_constants = (GLTFMetallic_Roughness::MaterialConstants*) out_gltf->material_data_buffer.info.pMappedData;
+
+    out_gltf->materials.resize(tinyModel->materials.size());
+    for(int i = 0; i < tinyModel->materials.size(); i++) {
+        tinygltf::GLTFMaterialData& tiny_mat_data = tinyModel->materials[i];
+
+        fmt::print("material extensions: {}\n", tiny_mat_data.extensions_json_string);
+
+        // Fill material constants
+        GLTFMetallic_Roughness::MaterialConstants constants;
+        constants.color_factors.x = tiny_mat_data.pbrMetallicRoughness.baseColorFactor[0];
+        constants.color_factors.y = tiny_mat_data.pbrMetallicRoughness.baseColorFactor[1];
+        constants.color_factors.z = tiny_mat_data.pbrMetallicRoughness.baseColorFactor[2];
+        constants.color_factors.w = tiny_mat_data.pbrMetallicRoughness.baseColorFactor[3];
+
+        constants.metal_rough_factors.x = tiny_mat_data.pbrMetallicRoughness.metallicFactor;
+        constants.metal_rough_factors.y = tiny_mat_data.pbrMetallicRoughness.roughnessFactor;
+
+        scene_material_constants[i] = constants;
+
+        // Pass Type
+
+        MaterialPassType pass_type = MaterialPassType::MainColor;
+        if(tiny_mat_data.alphaMode == "TRANSPARENT") {
+            pass_type = MaterialPassType::Transparent;
+        }
+
+        // Fill material resources
+
+        GLTFMetallic_Roughness::MaterialResources resources;
+
+        int base_color_tex_index = tiny_mat_data.pbrMetallicRoughness.baseColorTexture.index;
+        int metal_rough_tex_index = tiny_mat_data.pbrMetallicRoughness.metallicRoughnessTexture.index;
+
+        if(base_color_tex_index == -1) { // COLOR
+            resources.color_image = texture_load_error_image;
+            resources.color_sampler = texture_load_error_sampler;
+        } else {
+            tinygltf::Texture& texture = tinyModel->textures[base_color_tex_index];
+            resources.color_image = out_gltf->images[texture.source];
+            resources.color_sampler = out_gltf->samplers[texture.sampler];
+        }
+
+        if(metal_rough_tex_index == -1) { // METAL ROUGHNESS
+            resources.metal_rough_image = texture_load_error_image;
+            resources.metal_rough_sampler = texture_load_error_sampler;
+        } else {
+            tinygltf::Texture& texture = tinyModel->textures[metal_rough_tex_index];
+            resources.metal_rough_image = out_gltf->images[texture.source];
+            resources.metal_rough_sampler = out_gltf->samplers[texture.sampler];
+        }
+
+        resources.data_buffer = out_gltf->material_data_buffer.buffer;
+        resources.data_buffer_offset = i * sizeof(GLTFMetallic_Roughness::MaterialConstants);
+
+        std::shared_ptr<Material> our_material = std::make_shared<Material>();
+        our_material->data = material_creator.write_material(device, pass_type, resources, out_gltf->material_descriptor_pool);
+
+        out_gltf->materials[i] = our_material;
+    }
+
+    // Load meshes
+    std::vector<uint32_t> indices;
+    std::vector<Vertex> vertices;
+
+    out_gltf->meshes.reserve(tinyModel->meshes.size());
+    for(int i = 0; i < tinyModel->meshes.size(); i++) {
+        tinygltf::Mesh& tiny_mesh = tinyModel->meshes[i];
+        std::shared_ptr<GLTFMesh> mesh = std::make_shared<GLTFMesh>();
+
+        indices.clear();
+        vertices.clear();
+
+        for(int p = 0; p < tiny_mesh.primitives.size(); p++) {
+            tinygltf::Primitive& primitive = tiny_mesh.primitives[p];
+
+            SurfaceDrawData new_draw_data;
+            new_draw_data.firstIndex = static_cast<uint32_t>(indices.size());
+
+            tinygltf::Accessor indices_accessor = tinyModel->accessors[primitive.indices];
+            new_draw_data.indexCount = static_cast<uint32_t>(indices_accessor.count);
+
+            size_t initial_vertex = vertices.size();
+
+            // indices
+            {
+                indices.reserve(indices.size() + indices_accessor.count);
+
+                const tinygltf::BufferView& indicesBufferView = tinyModel->bufferViews[indices_accessor.bufferView];
+                const tinygltf::Buffer& indicesBuffer = tinyModel->buffers[indicesBufferView.buffer];
+
+                if(indices_accessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
+                    const uint16_t* convertedData = reinterpret_cast<const uint16_t *>(&indicesBuffer.data[indices_accessor.byteOffset + indicesBufferView.byteOffset]);
+                    for(uint32_t index_index = 0; index_index < indices_accessor.count; index_index++) {
+                        // get the index, and add the current number of vertices across all surfaces already handled in mesh
+                        indices.push_back(static_cast<uint16_t>(convertedData[index_index] + initial_vertex));
+                    }
+                } else if(indices_accessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT) {
+                    const uint32_t* convertedData = reinterpret_cast<const uint32_t *>(&indicesBuffer.data[indices_accessor.byteOffset + indicesBufferView.byteOffset]);
+                    for(uint32_t index_index = 0; index_index < indices_accessor.count; index_index++) {
+                        // get the index, and add the current number of vertices across all surfaces already handled in mesh
+                        indices.push_back(static_cast<uint32_t>(convertedData[index_index] + initial_vertex));
+                    }
+                }
+            }
+
+            // vert positions
+            {
+                auto position_accessor_index = primitive.attributes.find("POSITION")->second;
+                tinygltf::Accessor position_accessor = tinyModel->accessors[position_accessor_index];
+
+                vertices.resize(vertices.size() + position_accessor.count);
+
+                const tinygltf::BufferView& positionBufView = tinyModel->bufferViews[position_accessor.bufferView];
+                const tinygltf::Buffer& positionBuf = tinyModel->buffers[positionBufView.buffer];
+
+                // ORIGINAL, working code
+//                const float* convertedPositionFloatData = reinterpret_cast<const float*>(&positionBuf.data[position_accessor.byteOffset + positionBufView.byteOffset]);
+//                for(uint32_t i = 0; i < positionAccessor.count; i++) {
+//                    int index = i * 3;
+//                    positions.push_back(static_cast<float>(convertedPositionFloatData[index]));
+//                    positions.push_back(static_cast<float>(convertedPositionFloatData[index + 1]));
+//                    positions.push_back(static_cast<float>(convertedPositionFloatData[index + 2]));
+//                }
+
+                const glm::vec3* position_data = reinterpret_cast<const glm::vec3*>(&positionBuf.data[position_accessor.byteOffset + positionBufView.byteOffset]);
+                for(int v = 0; v < position_accessor.count; v++) {
+                    Vertex vertex = {
+                            .pos = position_data[v],
+                            .normal = glm::vec3(1, 0, 0),
+                            .tangent = glm::vec4(0.f),
+                            .color = glm::vec4(1.f),
+                            .texCoord = glm::vec2(0.f),
+                    };
+
+                    // can't use vertices.size() since we resized
+                    vertices[initial_vertex + v] = vertex;
+                }
+            }
+
+            // vert normals
+            {
+                auto normal_accessor_iterator = primitive.attributes.find("NORMAL");
+                if(normal_accessor_iterator != primitive.attributes.end()) {
+                    auto normal_accessor = tinyModel->accessors[normal_accessor_iterator->second];
+                    const tinygltf::BufferView& normal_buf_view = tinyModel->bufferViews[normal_accessor.bufferView];
+                    const tinygltf::Buffer& normal_buf = tinyModel->buffers[normal_buf_view.buffer];
+
+                    const glm::vec3* normal_data = reinterpret_cast<const glm::vec3*>(&normal_buf.data[normal_accessor.byteOffset + normal_buf_view.byteOffset]);
+                    for(int v = 0; v < normal_accessor.count; v++) {
+                        vertices[initial_vertex + v].normal = normal_data[v];
+                    }
+                }
+            }
+
+            // vert uvs
+            {
+                auto texcoord_accessor_iterator = primitive.attributes.find("TEXCOORD_0");
+                if(texcoord_accessor_iterator != primitive.attributes.end()) {
+                    auto texcoord_accessor = tinyModel->accessors[texcoord_accessor_iterator->second];
+                    const tinygltf::BufferView& texcoord_buf_view = tinyModel->bufferViews[texcoord_accessor.bufferView];
+                    const tinygltf::Buffer& texcoord_buf = tinyModel->buffers[texcoord_buf_view.buffer];
+
+                    const glm::vec2* texcoord_data = reinterpret_cast<const glm::vec2*>(&texcoord_buf.data[texcoord_accessor.byteOffset + texcoord_buf_view.byteOffset]);
+                    for(int v = 0; v < texcoord_accessor.count; v++) {
+                        vertices[initial_vertex + v].texCoord = texcoord_data[v];
+                    }
+                }
+            }
+
+            // vert colors
+            {
+                auto color_accessor_iterator = primitive.attributes.find("COLOR_0");
+                if(color_accessor_iterator != primitive.attributes.end()) {
+                    auto color_accessor = tinyModel->accessors[color_accessor_iterator->second];
+                    const tinygltf::BufferView& color_buf_view = tinyModel->bufferViews[color_accessor.bufferView];
+                    const tinygltf::Buffer& color_buf = tinyModel->buffers[color_buf_view.buffer];
+
+                    const glm::vec4* color_data = reinterpret_cast<const glm::vec4*>(&color_buf.data[color_accessor.byteOffset + color_buf_view.byteOffset]);
+                    for(int v = 0; v < color_accessor.count; v++) {
+                        vertices[initial_vertex + v].color = color_data[v];
+                    }
+                }
+            }
+
+            // set draw data's material
+            new_draw_data.material = primitive.material == -1 ? out_gltf->materials[0] : out_gltf->materials[primitive.material];
+
+            mesh->draw_datas.push_back(new_draw_data);
+        }
+
+        // upload mesh data to the GPU
+        mesh->mesh_buffers = vk_util::upload_mesh(indices, vertices, allocator, device, immediate_submit_command_buffer, tiny_mesh.name);
+
+        out_gltf->meshes.push_back(mesh);
+    }
+
+    for(int n = 0; n < tinyModel->nodes.size(); n++) {
+        tinygltf::Node& tiny_node = tinyModel->nodes[n];
+        std::shared_ptr<Node> new_node;
+
+        if(tiny_node.mesh != -1) {
+            new_node = std::make_shared<MeshNode>();
+            static_cast<MeshNode*>(new_node.get())->mesh = out_gltf->meshes[tiny_node.mesh];
+        } else {
+            new_node = std::make_shared<Node>();
+        }
+
+        out_gltf->nodes.push_back(new_node);
+
+        glm::mat4 m(1.0);
+        if(tinyModel->nodes[n].matrix.size() == 16) {
+            // use matrix attribute
+            for(int i = 0; i < 4; i++) {
+                for(int j = 0; j < 4; j++) {
+                    new_node->local_transform[i][j] = static_cast<float>(tinyModel->nodes[n].matrix[(i * 4) + j]);
+                }
+            }
+        } else {
+            // use Translate x Rotate x Scale order
+            glm::mat4 mScale = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, 1.0f, 1.0f));
+            if(!tinyModel->nodes[n].scale.empty()) {
+                mScale = glm::scale(glm::mat4(1.0f), glm::vec3(tinyModel->nodes[n].scale[0], tinyModel->nodes[n].scale[1], tinyModel->nodes[n].scale[2]));
+            }
+
+            glm::mat4 mRot = glm::mat4_cast(glm::quat(1, 0, 0, 0));
+            if(!tinyModel->nodes[n].rotation.empty()) {
+                mRot = glm::mat4_cast(glm::quat(tinyModel->nodes[n].rotation[3], tinyModel->nodes[n].rotation[0], tinyModel->nodes[n].rotation[1], tinyModel->nodes[n].rotation[2]));
+            }
+
+            glm::mat4 mTranslate = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 0));
+            if(!tinyModel->nodes[n].translation.empty()) {
+                mTranslate = glm::translate(glm::mat4(1.0f), glm::vec3(tinyModel->nodes[n].translation[0], tinyModel->nodes[n].translation[1], tinyModel->nodes[n].translation[2]));
+            }
+
+            new_node->local_transform = mTranslate * mRot * mScale;
+        }
+    }
+
+    // create hierarchy
+    for(int n = 0; n < tinyModel->nodes.size(); n++) {
+        tinygltf::Node& tiny_node = tinyModel->nodes[n];
+        std::shared_ptr<Node> node = out_gltf->nodes[n];
+
+        for(auto& c : tiny_node.children) {
+            node->children.push_back(out_gltf->nodes[c]);
+            out_gltf->nodes[c] = node;
+        }
+    }
+
+    // find top nodes w/ no parents
+    for(int n = 0; n < out_gltf->nodes.size(); n++) {
+        std::shared_ptr<Node> node = out_gltf->nodes[n];
+
+        if(node->parent.lock() == nullptr) {
+            out_gltf->top_nodes.push_back(node);
+            node->refresh_transform(glm::mat4(1.f));
+        }
+    }
+
+    return out_gltf;
+}
+
+/*
+ *
 
 namespace {
     std::vector<unsigned char> imageData(std::shared_ptr<tinygltf::Model> tinyModel, uint32_t imageId) {
@@ -80,7 +480,6 @@ void GLTFLoader::updateMeshData(std::shared_ptr<tinygltf::Model> tinyModel, Mode
 
     for(size_t nodeIndex = 0; nodeIndex < tinyModel->nodes.size(); nodeIndex++) {
 
-
         // Confirm this is a MESH node
         if(tinyModel->nodes[nodeIndex].mesh == -1) {
             continue;
@@ -92,6 +491,7 @@ void GLTFLoader::updateMeshData(std::shared_ptr<tinygltf::Model> tinyModel, Mode
         fmt::print("meshId: {}\n", meshId);
 
         Mesh currentMesh;
+        currentMesh.name = mesh.name;
 
         glm::mat4 m(1.0);
         if(tinyModel->nodes[nodeIndex].matrix.size() == 16) {
@@ -118,8 +518,11 @@ void GLTFLoader::updateMeshData(std::shared_ptr<tinygltf::Model> tinyModel, Mode
                 mTranslate = glm::translate(glm::mat4(1.0f), glm::vec3(tinyModel->nodes[nodeIndex].translation[0], tinyModel->nodes[nodeIndex].translation[1], tinyModel->nodes[nodeIndex].translation[2]));
             }
 
-            m = mTranslate * mRot * mScale; // TODO: don't we need to rotate??
+            m = mTranslate * mRot * mScale;
         }
+
+        // first index of this primitive
+        firstIndex = 0;
 
         // Process the primitive's data, placing the data in Mesh object
         for(auto& primitive : mesh.primitives) {
@@ -333,7 +736,7 @@ void GLTFLoader::updateMeshData(std::shared_ptr<tinygltf::Model> tinyModel, Mode
                                          tangents[fourElementsIndices[1]],
                                          tangents[fourElementsIndices[2]],
                                          tangents[fourElementsIndices[3]]),
-                    .color = glm::vec3(1.0, 0.0, 0.0),
+                    .color = glm::vec4(1.0, 1.0, 1.0, 1.0),
                     .texCoord = glm::vec2(uvs[twoElementsIndices[0]],
                                           uvs[twoElementsIndices[1]]),
                     .texCoord1 = glm::vec2(uv2s[twoElementsIndices[0]],
@@ -342,9 +745,10 @@ void GLTFLoader::updateMeshData(std::shared_ptr<tinygltf::Model> tinyModel, Mode
                 };
 
                 if(override_color_with_normal) {
-                    vertex.color = glm::vec3(normals[threeElementsIndices[0]],
+                    vertex.color = glm::vec4(normals[threeElementsIndices[0]],
                                              normals[threeElementsIndices[1]],
-                                             normals[threeElementsIndices[2]]);
+                                             normals[threeElementsIndices[2]],
+                                             1.0f);
                 }
 
                 vertex.applyTransform(m);
@@ -384,7 +788,7 @@ void GLTFLoader::updateMeshData(std::shared_ptr<tinygltf::Model> tinyModel, Mode
             .vertexOffset = firstInstance,
             .firstInstance = 0,
             .meshId = uint32_t(outputModel.meshes.size()),
-            .materialIndex = static_cast<int>(currentMesh.material)
+            .materialId = static_cast<int>(currentMesh.material)
         };
 
         firstIndex += currentMesh.indices.size();
@@ -418,7 +822,7 @@ std::vector<float> GLTFLoader::uCharVecToFloatVec(const std::vector<unsigned cha
 void GLTFLoader::updateMaterials(std::shared_ptr<tinygltf::Model> tinyModel, Model& outputModel) {
 
     for(auto& mat : tinyModel->materials) {
-        Material currentMaterial;
+        GLTFMaterialData currentMaterial;
 
         auto data = {
             std::pair{
@@ -458,7 +862,7 @@ void GLTFLoader::updateMaterials(std::shared_ptr<tinygltf::Model> tinyModel, Mod
     };
 
 }
-/*void convertModelToOneMeshPerBuffer_VerticesIndicesMaterialsAndTextures(const Context& context, CommandQueueManager& queueManager,
+ * void convertModelToOneMeshPerBuffer_VerticesIndicesMaterialsAndTextures(const Context& context, CommandQueueManager& queueManager,
                                                                         VkCommandBuffer commandBuffer, const Model& model,
                                                                         std::vector<std::shared_ptr<Buffer>>& buffers,
                                                                         std::vector<std::shared_ptr<Texture>>& textures,
@@ -537,7 +941,7 @@ void GLTFLoader::updateMaterials(std::shared_ptr<tinygltf::Model> tinyModel, Mod
         meshIndex++;
     }
 
-    const auto totalMaterialSize = sizeof(Material) * model.materials.size();
+    const auto totalMaterialSize = sizeof(GLTFMaterialData) * model.materials.size();
 
     buffers.emplace_back(context.createBuffer(
         totalMaterialSize,

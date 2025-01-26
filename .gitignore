@@ -32,5 +32,5 @@
 *.app
 
 # folders
-./cmake-build-*
-./cookbook_ref
+cmake-build-*/
+cookbook_ref/

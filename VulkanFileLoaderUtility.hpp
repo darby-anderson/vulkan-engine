@@ -10,4 +10,6 @@ namespace vk_file {
 
 bool load_shader_module(const char* file_path, VkDevice device, VkShaderModule* outModule);
 
+std::string extract_file_name_from_path(const char* file_path);
+
 }

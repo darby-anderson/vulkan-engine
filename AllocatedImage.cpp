@@ -44,7 +44,7 @@ void AllocatedImage::init_with_data(ImmediateSubmitCommandBuffer& immediate_subm
 
     memcpy(upload_buffer.info.pMappedData, data, data_size);
 
-    this->init(device, allocator, size, _format, usage_flags | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+    this->init(device, _allocator, size, _format, usage_flags | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                mipmapped);
 
     immediate_submit_command_buffer.submit([&](VkCommandBuffer cmd) {

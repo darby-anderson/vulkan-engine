@@ -52,6 +52,17 @@ add_executable(VulkanEngine main.cpp
         ImmediateSubmitCommandBuffer.cpp
         ImmediateSubmitCommandBuffer.hpp
         VulkanImageUtility.cpp
+        GLTFMetallic_Roughness.cpp
+        GLTFMetallic_Roughness.hpp
+        SceneGraphMembers.hpp
+        SceneGraphMembers.cpp
+        SimpleCamera.cpp
+        SimpleCamera.hpp
+        Input.hpp
+        Input.cpp
+        Keys.hpp
+        VulkanGeneralUtility.hpp
+        VulkanGeneralUtility.cpp
 )
 
 # COMPILE SHADERS

@@ -8,19 +8,23 @@
 #include "DescriptorLayoutBuilder.hpp"
 #include "VulkanInitUtility.hpp"
 
-void GLTFMetallic_Roughness::build_pipelines(VkDevice device, VkDescriptorSetLayout scene_data_descriptor_layout, AllocatedImage& draw_image, AllocatedImage& depth_image) {
+void GLTFMetallic_Roughness::build_pipelines(VkDevice device,
+                                             VkDescriptorSetLayout light_data_descriptor_layout,
+                                             VkDescriptorSetLayout scene_data_descriptor_layout,
+                                             VkDescriptorSetLayout shadow_map_descriptor_layout,
+                                             AllocatedImage& draw_image, AllocatedImage& depth_image) {
     VkShaderModule mesh_vert_shader;
-    if(!vk_file::load_shader_module("../shaders/mesh.vert.spv", device, &mesh_vert_shader)) {
+    if(!vk_file::load_shader_module("../shaders/brdf_mesh.vert.spv", device, &mesh_vert_shader)) {
         fmt::print("Error loading mesh vert shader\n");
     }
 
     VkShaderModule mesh_frag_shader;
-    if(!vk_file::load_shader_module("../shaders/mesh.frag.spv", device, &mesh_frag_shader)) {
+    if(!vk_file::load_shader_module("../shaders/brdf_mesh.frag.spv", device, &mesh_frag_shader)) {
         fmt::print("Error loading mesh frag shader\n");
     }
 
     VkPushConstantRange buffer_range = {
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
             .offset = 0,
             .size = sizeof(GPUDrawPushConstants),
     };
@@ -33,11 +37,15 @@ void GLTFMetallic_Roughness::build_pipelines(VkDevice device, VkDescriptorSetLay
     material_layout_builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     material_layout_builder.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     material_layout_builder.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    material_layout_builder.add_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    material_layout_builder.add_binding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 
     material_layout = material_layout_builder.build(device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 
     std::vector<VkDescriptorSetLayout> mesh_descriptor_set_layouts {
             scene_data_descriptor_layout,
+            light_data_descriptor_layout,
+            shadow_map_descriptor_layout,
             material_layout
     };
 
@@ -95,6 +103,8 @@ MaterialInstance GLTFMetallic_Roughness::write_material(VkDevice device, Materia
     writer.write_buffer(0, resources.data_buffer, sizeof(MaterialConstants), resources.data_buffer_offset, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     writer.write_image(1, resources.color_image.view, resources.color_sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.write_image(2, resources.metal_rough_image.view, resources.metal_rough_sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.write_image(3, resources.normal_image.view, resources.normal_sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.write_image(4, resources.ambient_occlusion_image.view, resources.ambient_occlusion_sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.update_set(device, mat_data.material_set);
 
     return mat_data;

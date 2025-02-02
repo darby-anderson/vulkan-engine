@@ -185,14 +185,17 @@ namespace vk_init {
     }
 
 
-VkRenderingInfo get_rendering_info(VkExtent2D render_extent, VkRenderingAttachmentInfo* color_attachment, VkRenderingAttachmentInfo* depth_attachment) {
+VkRenderingInfo get_rendering_info(VkExtent2D render_extent, const std::vector<VkRenderingAttachmentInfo>& color_attachments, VkRenderingAttachmentInfo* depth_attachment) {
+
+        uint32_t color_attachment_count = static_cast<uint32_t>(color_attachments.size());
+
         VkRenderingInfo info = {
                 .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
                 .pNext = nullptr,
                 .renderArea = VkRect2D { VkOffset2D{0, 0}, render_extent },
                 .layerCount = 1,
-                .colorAttachmentCount = 1,
-                .pColorAttachments = color_attachment,
+                .colorAttachmentCount = color_attachment_count,
+                .pColorAttachments = color_attachment_count == 0 ? nullptr : color_attachments.data(),
                 .pDepthAttachment = depth_attachment,
                 .pStencilAttachment = nullptr
         };

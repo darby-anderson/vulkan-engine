@@ -26,9 +26,12 @@
 #include "backends/imgui_impl_vulkan.h"
 #include "imgui.h"
 #include "Input.hpp"
+#include "ShadowPipeline.hpp"
 
 struct EngineStats {
     float frame_time;
+    float longest_frame_time = 0.0f;
+    int longest_frame_number = -1;
     int triangle_count;
     int draw_call_count;
     float scene_update_time;
@@ -47,12 +50,49 @@ struct FrameData {
 
     DeletionQueue deletion_queue;
     DescriptorAllocatorGrowable frame_descriptors;
+
+    VkDescriptorSet light_data_descriptor_set;
 };
 
 constexpr uint32_t FRAME_OVERLAP = 2;
 
 class Engine {
 public:
+
+    // initializes all components
+    void init();
+
+    // shuts down the engine
+    void cleanup();
+
+    void draw();
+
+    // run the main loop
+    void run();
+
+    FrameData& get_current_frame();
+
+private:
+    void init_command_structures();
+    void init_synch_objects();
+    void init_descriptors();
+    void init_pipelines();
+    void init_draw_and_depth_images();
+    void init_default_data();
+    void init_imgui();
+    void init_background_pipelines();
+
+    void load_gltf_file(const std::string& file_path);
+
+    void imgui_new_frame();
+    void draw_background(VkCommandBuffer cmd);
+    void draw_shadow_map(VkCommandBuffer cmd);
+    void draw_geometry(VkCommandBuffer cmd);
+    void draw_imgui(VkCommandBuffer cmd, VkImageView target_image_view);
+
+    void resize_swapchain();
+
+    void update_scene();
 
     VulkanContext vulkan_context;
     Window window;
@@ -66,7 +106,11 @@ public:
     AllocatedImage draw_image;
     AllocatedImage depth_image;
     VkExtent2D draw_extent;
-    float render_scale = 1.0f;
+
+    // Shadows
+    ShadowPipeline shadow_pipeline;
+    AllocatedImage shadow_map_image;
+    VkDescriptorSetLayout shadow_map_descriptor_set_layout;
 
     DescriptorAllocatorGrowable global_descriptor_allocator;
     VkDescriptorSet draw_image_descriptors;
@@ -79,8 +123,11 @@ public:
     uint32_t frame_number;
 
     GPUSceneData scene_data;
-    // ^ uploaded to V
+    // ^ uploaded to descriptor set associated with V
     VkDescriptorSetLayout gpu_scene_descriptor_set_layout;
+
+    LightSourceData light_source_data;
+    VkDescriptorSetLayout light_source_descriptor_set_layout;
 
     GLTFMetallic_Roughness metal_rough_material;
 
@@ -106,42 +153,14 @@ public:
 
     // Interactive state
     std::vector<ComputeEffect> compute_effects;
-    int current_compute_effect{0};
-
-    // initializes all components
-    void init();
-
-    // shuts down the engine
-    void cleanup();
-
-    void draw();
-
-    // run the main loop
-    void run();
-
-    FrameData& get_current_frame();
-
-private:
-    void init_command_structures();
-    void init_synch_objects();
-    void init_descriptors();
-    void init_pipelines();
-    void init_draw_and_depth_images();
-    void init_default_data();
-    void init_imgui();
-    void init_background_pipelines();
-
-    void load_gltf_file(const std::string& file_path, bool override_color_with_normal);
-
-    void imgui_new_frame();
-    void draw_background(VkCommandBuffer cmd);
-    void draw_geometry(VkCommandBuffer cmd);
-    void draw_imgui(VkCommandBuffer cmd, VkImageView target_image_view);
-
-
-    void resize_swapchain();
-
-    void update_scene();
+    int current_compute_effect{1};
+    float render_scale = 1.0f;
+    float ambient_occlusion_strength = 1.0f;
+    float sunlight_angle = 180.0f;
+    float sunlight_light_distance = 10.0f;
+    float shadow_bias_scalar = 0.0001f;
+    bool use_perspective_light_projection = false;
+    int shadow_softening_kernel_size = 3;
 
     // Model Data
     DescriptorAllocatorGrowable model_descriptor_allocator;
@@ -149,27 +168,8 @@ private:
     EngineStats stats;
 
     DrawContext main_draw_context;
-    // std::unordered_map<std::string, std::shared_ptr<Node>> loaded_nodes;
     std::unordered_map<std::string, std::shared_ptr<GLTFFile>> loaded_scenes;
 
     bool swapchain_resize_requested = false;
-
-
-
-//    VkPipeline triangle_pipeline;
-//    VkPipelineLayout triangle_pipeline_layout;
-//
-
-    // VkDescriptorSetLayout single_image_descriptor_set_layout;
-
-//    VkPipeline mesh_pipeline;
-//    VkPipelineLayout mesh_pipeline_layout;
-    // void init_triangle_pipeline();
-    // void init_mesh_pipeline();
-
-    // std::vector<std::shared_ptr<MeshDrawData>> test_meshes;
-    // std::vector<std::shared_ptr<Material>> test_materials;
-    // std::vector<AllocatedImage> test_textures;
-
 
 };

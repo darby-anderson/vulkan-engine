@@ -15,7 +15,7 @@ public:
     void update();
     glm::mat4 get_view_matrix();
     glm::mat4 get_rotation_matrix();
-
+    glm::vec3 get_position();
 
 private:
     glm::vec3 position {0};

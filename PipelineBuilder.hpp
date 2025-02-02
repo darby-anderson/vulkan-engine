@@ -40,6 +40,7 @@ public:
     void enable_blending_additive();
     void enable_blending_alphablend();
     void set_color_attachment_format(VkFormat format);
+    void disable_color_attachment();
     void set_depth_format(VkFormat format);
     void disable_depth_test();
     void enable_depth_test(bool enable_depth_write, VkCompareOp op);

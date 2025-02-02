@@ -16,27 +16,37 @@ void SimpleCamera::update() {
 
     // Update our variables based on values in the input module
 
+    float base_velocity = 0.15f;
+
     if(input_module->is_key_down(KEY_W)) {
-        velocity.z = -1;
+        velocity.z = -base_velocity;
     }
 
     if(input_module->is_key_down(KEY_S)) {
-        velocity.z = 1;
+        velocity.z = base_velocity;
     }
 
     if(input_module->is_key_down(KEY_A)) {
-        velocity.x = -1;
+        velocity.x = -base_velocity;
     }
 
     if(input_module->is_key_down(KEY_D)) {
-        velocity.x = 1;
+        velocity.x = base_velocity;
     }
 
-    if(input_module->is_key_down(KEY_LEFT_CONTROL)) {
-        velocity *= 0.2f;
+    if(input_module->is_key_down(KEY_Q)) {
+        velocity.y = -base_velocity;
+    }
+
+    if(input_module->is_key_down(KEY_E)) {
+        velocity.y = base_velocity;
     }
 
     if(input_module->is_key_down(KEY_LEFT_SHIFT)) {
+        velocity *= 0.2f;
+    }
+
+    if(input_module->is_key_down(KEY_LEFT_CONTROL)) {
         velocity *= 5.f;
     }
 
@@ -77,4 +87,7 @@ glm::mat4 SimpleCamera::get_rotation_matrix() {
     return glm::toMat4(yaw_rot) * glm::toMat4(pitch_rot);
 }
 
+glm::vec3 SimpleCamera::get_position() {
+    return position;
+}
 

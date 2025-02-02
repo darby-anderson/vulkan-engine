@@ -34,7 +34,7 @@ namespace vk_init {
 
     VkRenderingAttachmentInfo get_depth_attachment_info(VkImageView view, VkImageLayout layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
-    VkRenderingInfo get_rendering_info(VkExtent2D render_extent, VkRenderingAttachmentInfo* color_attachment, VkRenderingAttachmentInfo* depth_attachment);
+    VkRenderingInfo get_rendering_info(VkExtent2D render_extent, const std::vector<VkRenderingAttachmentInfo>& color_attachments, VkRenderingAttachmentInfo* depth_attachment);
 
     VkPipelineShaderStageCreateInfo  get_pipeline_shader_stage_info(VkShaderStageFlagBits stage, VkShaderModule shader_module);
 

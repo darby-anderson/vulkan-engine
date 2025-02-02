@@ -152,9 +152,19 @@ std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator al
 
     out_gltf->materials.resize(tinyModel->materials.size());
     for(int i = 0; i < tinyModel->materials.size(); i++) {
-        tinygltf::GLTFMaterialData& tiny_mat_data = tinyModel->materials[i];
+        tinygltf::Material& tiny_mat_data = tinyModel->materials[i];
 
         fmt::print("material extensions: {}\n", tiny_mat_data.extensions_json_string);
+
+        int base_color_tex_index = tiny_mat_data.pbrMetallicRoughness.baseColorTexture.index;
+        int metal_rough_tex_index = tiny_mat_data.pbrMetallicRoughness.metallicRoughnessTexture.index;
+        int normal_texture_index = tiny_mat_data.normalTexture.index;
+        int ambient_occlusion_tex_index = tiny_mat_data.occlusionTexture.index;
+
+        bool includes_color_texture = base_color_tex_index != -1;
+        bool includes_metal_roughness_texture = metal_rough_tex_index != -1;
+        bool includes_normal_texture = normal_texture_index != -1;
+        bool includes_ambient_occlusion_texture = ambient_occlusion_tex_index != -1;
 
         // Fill material constants
         GLTFMetallic_Roughness::MaterialConstants constants;
@@ -165,6 +175,16 @@ std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator al
 
         constants.metal_rough_factors.x = tiny_mat_data.pbrMetallicRoughness.metallicFactor;
         constants.metal_rough_factors.y = tiny_mat_data.pbrMetallicRoughness.roughnessFactor;
+
+        constants.includes_certain_textures[0] = includes_color_texture;
+        constants.includes_certain_textures[1] = includes_metal_roughness_texture;
+        constants.includes_certain_textures[2] = includes_normal_texture;
+        constants.includes_certain_textures[3] = includes_ambient_occlusion_texture;
+
+        constants.ambient_occlusion_strength = tiny_mat_data.occlusionTexture.strength;
+        constants.normal_scale = tiny_mat_data.normalTexture.scale;
+
+        // fmt::print("vec4 size: {}, bvec4 size: {}\n", sizeof(glm::vec4), sizeof(glm::bvec4));
 
         scene_material_constants[i] = constants;
 
@@ -179,25 +199,40 @@ std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator al
 
         GLTFMetallic_Roughness::MaterialResources resources;
 
-        int base_color_tex_index = tiny_mat_data.pbrMetallicRoughness.baseColorTexture.index;
-        int metal_rough_tex_index = tiny_mat_data.pbrMetallicRoughness.metallicRoughnessTexture.index;
-
-        if(base_color_tex_index == -1) { // COLOR
-            resources.color_image = texture_load_error_image;
-            resources.color_sampler = texture_load_error_sampler;
-        } else {
+        if(includes_color_texture) { // COLOR
             tinygltf::Texture& texture = tinyModel->textures[base_color_tex_index];
             resources.color_image = out_gltf->images[texture.source];
             resources.color_sampler = out_gltf->samplers[texture.sampler];
+        } else {
+            resources.color_image = texture_load_error_image;
+            resources.color_sampler = texture_load_error_sampler;
         }
 
-        if(metal_rough_tex_index == -1) { // METAL ROUGHNESS
-            resources.metal_rough_image = texture_load_error_image;
-            resources.metal_rough_sampler = texture_load_error_sampler;
-        } else {
+        if(includes_metal_roughness_texture) { // METAL ROUGHNESS
             tinygltf::Texture& texture = tinyModel->textures[metal_rough_tex_index];
             resources.metal_rough_image = out_gltf->images[texture.source];
             resources.metal_rough_sampler = out_gltf->samplers[texture.sampler];
+        } else {
+            resources.metal_rough_image = texture_load_error_image;
+            resources.metal_rough_sampler = texture_load_error_sampler;
+        }
+
+        if(includes_normal_texture) { // NORMAL
+            tinygltf::Texture& texture = tinyModel->textures[normal_texture_index];
+            resources.normal_image = out_gltf->images[texture.source];
+            resources.normal_sampler = out_gltf->samplers[texture.sampler];
+        } else {
+            resources.normal_image = texture_load_error_image;
+            resources.normal_sampler = texture_load_error_sampler;
+        }
+
+        if(includes_ambient_occlusion_texture) { // AMBIENT_OCCLUSION
+            tinygltf::Texture& texture = tinyModel->textures[ambient_occlusion_tex_index];
+            resources.ambient_occlusion_image = out_gltf->images[texture.source];
+            resources.ambient_occlusion_sampler = out_gltf->samplers[texture.sampler];
+        } else {
+            resources.ambient_occlusion_image = texture_load_error_image;
+            resources.ambient_occlusion_sampler = texture_load_error_sampler;
         }
 
         resources.data_buffer = out_gltf->material_data_buffer.buffer;
@@ -264,15 +299,6 @@ std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator al
                 const tinygltf::BufferView& positionBufView = tinyModel->bufferViews[position_accessor.bufferView];
                 const tinygltf::Buffer& positionBuf = tinyModel->buffers[positionBufView.buffer];
 
-                // ORIGINAL, working code
-//                const float* convertedPositionFloatData = reinterpret_cast<const float*>(&positionBuf.data[position_accessor.byteOffset + positionBufView.byteOffset]);
-//                for(uint32_t i = 0; i < positionAccessor.count; i++) {
-//                    int index = i * 3;
-//                    positions.push_back(static_cast<float>(convertedPositionFloatData[index]));
-//                    positions.push_back(static_cast<float>(convertedPositionFloatData[index + 1]));
-//                    positions.push_back(static_cast<float>(convertedPositionFloatData[index + 2]));
-//                }
-
                 const glm::vec3* position_data = reinterpret_cast<const glm::vec3*>(&positionBuf.data[position_accessor.byteOffset + positionBufView.byteOffset]);
                 for(int v = 0; v < position_accessor.count; v++) {
                     Vertex vertex = {
@@ -330,6 +356,23 @@ std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator al
                     for(int v = 0; v < color_accessor.count; v++) {
                         vertices[initial_vertex + v].color = color_data[v];
                     }
+                }
+            }
+
+            // vert tangent
+            {
+                auto tangent_accessor_iterator = primitive.attributes.find("TANGENT");
+                if(tangent_accessor_iterator != primitive.attributes.end()) {
+                    auto tangent_accessor = tinyModel->accessors[tangent_accessor_iterator->second];
+                    const tinygltf::BufferView& tangent_buf_view = tinyModel->bufferViews[tangent_accessor.bufferView];
+                    const tinygltf::Buffer& tangent_buf = tinyModel->buffers[tangent_buf_view.buffer];
+
+                    const glm::vec4* tangent_data = reinterpret_cast<const glm::vec4*>(&tangent_buf.data[tangent_accessor.byteOffset + tangent_buf_view.byteOffset]);
+                    for(int v = 0; v < tangent_accessor.count; v++) {
+                        vertices[initial_vertex + v].tangent = tangent_data[v];
+                    }
+                } else {
+                    fmt::print("File does not contain tangent!\n");
                 }
             }
 

@@ -63,6 +63,8 @@ add_executable(VulkanEngine main.cpp
         Keys.hpp
         VulkanGeneralUtility.hpp
         VulkanGeneralUtility.cpp
+        ShadowPipeline.cpp
+        ShadowPipeline.hpp
 )
 
 # COMPILE SHADERS

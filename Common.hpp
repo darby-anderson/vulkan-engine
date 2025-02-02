@@ -19,6 +19,7 @@
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE // necessary when using glm::ortho, as we define a 0->1 range for our depth range
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>

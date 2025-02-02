@@ -7,9 +7,15 @@
 
 namespace vk_image {
 
+// assumes image aspect we are interested in
 void transition_image_layout(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLayout, VkImageLayout newLayout) {
     VkImageAspectFlags aspect_flags = (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) ?
                                       VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
+    transition_image_layout_specify_aspect(cmd, image, currentLayout, newLayout, aspect_flags);
+}
+
+void transition_image_layout_specify_aspect(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLayout, VkImageLayout newLayout, VkImageAspectFlags aspectFlags) {
 
     VkImageMemoryBarrier2 imageBarrier = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -21,7 +27,7 @@ void transition_image_layout(VkCommandBuffer cmd, VkImage image, VkImageLayout c
             .oldLayout = currentLayout,
             .newLayout = newLayout,
             .image = image,
-            .subresourceRange = vk_init::get_image_subresource_range(aspect_flags),
+            .subresourceRange = vk_init::get_image_subresource_range(aspectFlags),
     };
 
     VkDependencyInfo dep_info = {

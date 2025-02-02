@@ -147,6 +147,11 @@ void PipelineBuilder::set_color_attachment_format(VkFormat format) {
     render_info.pColorAttachmentFormats = &color_attachment_format;
 }
 
+void PipelineBuilder::disable_color_attachment() {
+    render_info.colorAttachmentCount = 0;
+}
+
+
 void PipelineBuilder::set_depth_format(VkFormat format) {
     render_info.depthAttachmentFormat = format;
 }

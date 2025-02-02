@@ -31,7 +31,7 @@ void Engine::init() {
     frame_number = 0;
 
     WindowConfiguration window_conf = {
-            .width = 1000,
+            .width = 1600,
             .height = 1000
     };
     window.init(window_conf);
@@ -136,9 +136,11 @@ void Engine::init_draw_and_depth_images() {
     };
 
     VK_CHECK(vmaCreateImage(allocator, &draw_image_create_info, &draw_image_alloc_info, &draw_image.image, &draw_image.allocation, nullptr));
+    vk_debug::name_resource<VkImage>(device.device, VK_OBJECT_TYPE_IMAGE, draw_image.image, "Draw Image");
 
     VkImageViewCreateInfo draw_image_view_create_info = vk_init::get_image_view_create_info(draw_image.format, draw_image.image, VK_IMAGE_ASPECT_COLOR_BIT);
     VK_CHECK(vkCreateImageView(device.device, &draw_image_view_create_info, nullptr, &draw_image.view));
+    vk_debug::name_resource<VkImageView>(device.device, VK_OBJECT_TYPE_IMAGE_VIEW, draw_image.view, "Draw Image View");
 
     // DEPTH image
     depth_image.extent = draw_image_extent;
@@ -154,10 +156,36 @@ void Engine::init_draw_and_depth_images() {
 
     VkImageCreateInfo depth_image_create_info = vk_init::get_image_create_info(depth_image.format, depth_image_usage_flags, depth_image.extent);
     VK_CHECK(vmaCreateImage(allocator, &depth_image_create_info, &depth_image_alloc_info, &depth_image.image, &depth_image.allocation, nullptr));
+    vk_debug::name_resource<VkImage>(device.device, VK_OBJECT_TYPE_IMAGE, depth_image.image, "Depth Image");
 
     VkImageViewCreateInfo depth_image_view_create_info = vk_init::get_image_view_create_info(depth_image.format, depth_image.image, VK_IMAGE_ASPECT_DEPTH_BIT);
     VK_CHECK(vkCreateImageView(device.device, &depth_image_view_create_info, nullptr, &depth_image.view));
+    vk_debug::name_resource<VkImageView>(device.device, VK_OBJECT_TYPE_IMAGE_VIEW, depth_image.view, "Depth Image View");
 
+    // SHADOW MAP IMAGE
+    shadow_map_image.extent = VkExtent3D {
+        .width = 4096,
+        .height = 4096,
+        .depth = 1,
+    };
+    shadow_map_image.format = VK_FORMAT_D32_SFLOAT;
+
+    VkImageUsageFlags shadow_map_image_usage_flags = {};
+    shadow_map_image_usage_flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    shadow_map_image_usage_flags |= VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VmaAllocationCreateInfo  shadow_map_alloc_info = {
+            .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+            .requiredFlags = VkMemoryPropertyFlags (VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+    };
+
+    VkImageCreateInfo shadow_map_image_create_info = vk_init::get_image_create_info(shadow_map_image.format, shadow_map_image_usage_flags, shadow_map_image.extent);
+    VK_CHECK(vmaCreateImage(allocator, &shadow_map_image_create_info, &shadow_map_alloc_info, &shadow_map_image.image, &shadow_map_image.allocation, nullptr));
+    vk_debug::name_resource<VkImage>(device.device, VK_OBJECT_TYPE_IMAGE, shadow_map_image.image, "Shadow Map Image");
+
+    VkImageViewCreateInfo shadow_map_image_view_create_info = vk_init::get_image_view_create_info(shadow_map_image.format, shadow_map_image.image, VK_IMAGE_ASPECT_DEPTH_BIT);
+    VK_CHECK(vkCreateImageView(device.device, &shadow_map_image_view_create_info, nullptr, &shadow_map_image.view));
+    vk_debug::name_resource<VkImageView>(device.device, VK_OBJECT_TYPE_IMAGE_VIEW, shadow_map_image.view, "Shadow Map Image View");
 
     engine_deletion_queue.push_function([=, this]() {
         vkDestroyImageView(device.device, draw_image.view, nullptr);
@@ -165,6 +193,9 @@ void Engine::init_draw_and_depth_images() {
 
         vkDestroyImageView(device.device, depth_image.view, nullptr);
         vmaDestroyImage(allocator, depth_image.image, depth_image.allocation);
+
+        vkDestroyImageView(device.device, shadow_map_image.view, nullptr);
+        vmaDestroyImage(allocator, shadow_map_image.image, shadow_map_image.allocation);
     });
 
 }
@@ -233,6 +264,16 @@ void Engine::init_descriptors() {
         builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
         gpu_scene_descriptor_set_layout = builder.build(device.device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
     }
+
+    // LIGHT SOURCE DESCRIPTOR SET LAYOUT
+    DescriptorLayoutBuilder light_source_layout_builder;
+    light_source_layout_builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    light_source_descriptor_set_layout = light_source_layout_builder.build(device.device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+
+    // SHADOW MAP DESCRIPTOR SET LAYOUT
+    DescriptorLayoutBuilder shadow_map_layout_builder;
+    shadow_map_layout_builder.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    shadow_map_descriptor_set_layout = shadow_map_layout_builder.build(device.device, VK_SHADER_STAGE_FRAGMENT_BIT);
 
     for(int i = 0; i < FRAME_OVERLAP; i++) {
         // create descriptor pool for the frame
@@ -319,12 +360,14 @@ void Engine::init_pipelines() {
     // COMPUTE PIPELINES
     init_background_pipelines();
 
-    // GRAPHICS PIPELINES
-    // init_triangle_pipeline();
-    // init_mesh_pipeline();
+    // SHADOW PIPELINE
+    shadow_pipeline.init(device.device, shadow_map_image, light_source_descriptor_set_layout);
+    engine_deletion_queue.push_function([&](){
+        shadow_pipeline.destroy_resources(device.device);
+    });
 
     // SECOND GRAPHICS PIPELINE -> METALLIC ROUGHNESS PIPELINE
-    metal_rough_material.build_pipelines(device.device, gpu_scene_descriptor_set_layout, draw_image, depth_image);
+    metal_rough_material.build_pipelines(device.device, light_source_descriptor_set_layout, gpu_scene_descriptor_set_layout, shadow_map_descriptor_set_layout, draw_image, depth_image);
     engine_deletion_queue.push_function([&](){
         metal_rough_material.clear_resources(device.device);
     });
@@ -388,7 +431,6 @@ void Engine::init_default_data() {
 
 
     // Image data
-
     VkExtent3D default_image_extent = {
             .width = 1,
             .height = 1,
@@ -457,14 +499,22 @@ void Engine::init_default_data() {
     material_resources.color_sampler = default_linear_sampler;
     material_resources.metal_rough_image = default_white_image;
     material_resources.metal_rough_sampler = default_linear_sampler;
+    material_resources.normal_image = default_white_image;
+    material_resources.normal_sampler = default_linear_sampler;
+    material_resources.ambient_occlusion_image = default_white_image;
+    material_resources.ambient_occlusion_sampler = default_linear_sampler;
+
 
     Buffer material_constants;
     material_constants.init(allocator, sizeof(GLTFMetallic_Roughness::MaterialConstants), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
     // Write the material constants buffer
-    GLTFMetallic_Roughness::MaterialConstants* scene_uniform_data = (GLTFMetallic_Roughness::MaterialConstants*)material_constants.allocation->GetMappedData();
-    scene_uniform_data->color_factors = glm::vec4(1, 1, 1, 1);
-    scene_uniform_data->metal_rough_factors = glm::vec4(1, 0, 0.5, 0);
+    GLTFMetallic_Roughness::MaterialConstants* material_uniform_data = (GLTFMetallic_Roughness::MaterialConstants*)material_constants.allocation->GetMappedData();
+    material_uniform_data->color_factors = glm::vec4(1, 1, 1, 1);
+    material_uniform_data->metal_rough_factors = glm::vec4(1, 0, 0.5, 0);
+    material_uniform_data->includes_certain_textures = glm::bvec4(true, true, true, false);
+    material_uniform_data->normal_scale = 1.0f;
+    material_uniform_data->ambient_occlusion_strength = 1.0f;
 
     engine_deletion_queue.push_function([=, this](){
         material_constants.destroy_buffer();
@@ -475,19 +525,11 @@ void Engine::init_default_data() {
 
     default_material = metal_rough_material.write_material(device.device, MaterialPassType::MainColor, material_resources, global_descriptor_allocator);
 
-    // load_gltf_file("../models/basicmesh.glb", false);
-    // load_gltf_file("../models/Duck.glb", false);
-    load_gltf_file("../cookbook_ref/resources/models/ABeautifulGame/glTF/ABeautifulGame.gltf", false);
+    load_gltf_file("../models/ABeautifulGame/ABeautifulGame.gltf");
 
 }
 
-
-// What I need to do is convert DrawData into the MeshAsset structure
-// Mesh <- GPUMeshBuffers
-// Mesh <- IndirectDrawDataAndMeshData associated with it
-// Mesh <- GLTFMaterialData Data
-
-void Engine::load_gltf_file(const std::string& file_path, bool override_color_with_normal) {
+void Engine::load_gltf_file(const std::string& file_path) {
     // std::shared_ptr<Model> model = gltf_loader.load(file_path, override_color_with_normal);
     std::shared_ptr<GLTFFile> gltf_file = gltf_loader.load_file(device.device,
                                                                 allocator,
@@ -504,130 +546,6 @@ void Engine::load_gltf_file(const std::string& file_path, bool override_color_wi
 
     std::string file_name = vk_file::extract_file_name_from_path(file_path.c_str());
     loaded_scenes[file_name] = gltf_file;
-
-    /* std::vector<AllocatedImage> model_images;
-    std::vector<std::shared_ptr<Material>> test_materials;
-    std::vector<std::shared_ptr<MeshDrawData>> test_meshes;
-
-    std::string debug_model_name = vk_file::extract_file_name_from_path(file_path.c_str());
-
-    // Load texture data
-    for(int texture_index = 0; texture_index < model->textures.size(); texture_index++) {
-        ModelImageData* image_data = model->textures[texture_index].get();
-
-        VkExtent3D extent = {
-                .width = static_cast<uint32_t>(image_data->width),
-                .height = static_cast<uint32_t>(image_data->height),
-                .depth = 1
-        };
-
-        AllocatedImage new_image;
-        new_image.init_with_data(immediate_submit_command_buffer, device.device, allocator, image_data->data, extent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
-        vk_debug::name_resource<VkImage>(device.device, VK_OBJECT_TYPE_IMAGE, new_image.image, (debug_model_name + " " + std::to_string(texture_index) + " image").c_str());
-        vk_debug::name_resource<VkImageView>(device.device, VK_OBJECT_TYPE_IMAGE_VIEW, new_image.view, (debug_model_name + " " + std::to_string(texture_index) + " image view").c_str());
-
-        // test_textures.push_back(new_image);
-        model_images.push_back(new_image);
-    }
-
-    engine_deletion_queue.push_function([=, this]() {
-//        for(auto& test_texture : test_textures) {
-//            test_texture.destroy(device.device);
-//        }
-
-        for(AllocatedImage test_texture : model_images) {
-            test_texture.destroy(device.device);
-        }
-    });
-
-    // Load material data
-    std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes =
-            { { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3 },
-              { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3 },
-              { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 } };
-    model_descriptor_allocator.init_allocator(device.device, model->materials.size(), sizes);
-
-    for(int material_index = 0; material_index < model->materials.size(); material_index++) {
-        GLTFMaterialData& material_data = model->materials[material_index];
-
-        // CREATE MATERIAL
-        int color_tex_id = material_data.baseColorTextureId;
-
-        GLTFMetallic_Roughness::MaterialResources material_resources;
-        material_resources.color_image = color_tex_id == -1 ? error_checkerboard_image : model_images[color_tex_id];
-        material_resources.color_sampler = default_nearest_neighbor_sampler;
-        material_resources.metal_rough_image = error_checkerboard_image;
-        material_resources.metal_rough_sampler = default_linear_sampler;
-
-        Buffer material_constants;
-        material_constants.init(allocator, sizeof(GLTFMetallic_Roughness::MaterialConstants), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-
-        // Write the material constants buffer
-        GLTFMetallic_Roughness::MaterialConstants* scene_uniform_data = (GLTFMetallic_Roughness::MaterialConstants*)material_constants.allocation->GetMappedData();
-        scene_uniform_data->color_factors = glm::vec4(1, 1, 1, 1);
-        scene_uniform_data->metal_rough_factors = glm::vec4(1, 0, 0.5, 0);
-
-        engine_deletion_queue.push_function([=, this](){
-            material_constants.destroy_buffer();
-        });
-
-        material_resources.data_buffer = material_constants.buffer;
-        material_resources.data_buffer_offset = 0;
-
-        MaterialInstance new_material = metal_rough_material.write_material(device.device, MaterialPassType::MainColor, material_resources, model_descriptor_allocator);
-        test_materials.push_back(std::make_shared<Material>(new_material));
-    }
-    // materials descriptor sets destroyed on the deletion of their descriptor pools
-
-    // Associate all submeshes with their materials
-    for(int submesh_index = 0; submesh_index < model->indirectDrawDataSet.size(); submesh_index++) {
-        IndirectDrawDataAndMeshData& submesh_data = model->indirectDrawDataSet[submesh_index];
-
-        int mat_id = submesh_data.materialId;
-        submesh_data.material = mat_id == -1 ? std::make_shared<Material>(default_material) : test_materials[mat_id];
-    }
-
-    // Collect all test meshes
-    for(int mesh_index = 0; mesh_index < model->meshes.size(); mesh_index++) {
-        Mesh& mesh = model->meshes[mesh_index];
-
-        MeshDrawData draw_data;
-        draw_data.gpu_mesh_buffers = vk_util::upload_mesh(mesh.indices, mesh.vertices, allocator, device.device, immediate_submit_command_buffer, mesh.name);
-        draw_data.name = mesh.name;
-
-        // find all associated indirect draw datas
-        for(auto& f : model->indirectDrawDataSet) {
-            if(f.meshId == mesh_index) {
-                draw_data.submesh_datas.push_back(f);
-            }
-        }
-
-        test_meshes.push_back(std::make_shared<MeshDrawData>(std::move(draw_data)));
-    }
-
-    engine_deletion_queue.push_function([&]() {
-        for(auto& test_mesh : test_meshes) {
-            test_mesh->gpu_mesh_buffers.vertex_buffer.destroy_buffer();
-            test_mesh->gpu_mesh_buffers.index_buffer.destroy_buffer();
-        }
-    });
-
-
-    // Place loaded data into scene nodes
-    for(auto& m : test_meshes) {
-        std::shared_ptr<MeshNode> new_node = std::make_shared<MeshNode>();
-        new_node->mesh = m;
-
-        new_node->local_transform = glm::mat4(1.f);
-        new_node->world_transform = glm::mat4(1.f);
-
-//        for(auto& s : new_node->mesh->submesh_datas) {
-//            s.material = std::make_shared<Material>(default_material);
-//        }
-
-        loaded_nodes[m->name] = std::move(new_node);
-    } */
-
 }
 
 
@@ -736,11 +654,16 @@ void Engine::run() {
             resize_swapchain();
         }
 
-        frame_number++;
-
         auto frame_end = std::chrono::system_clock::now();
         auto time_elapsed = std::chrono::duration_cast<std::chrono::microseconds>(frame_end - frame_start);
         stats.frame_time = time_elapsed.count() / 1000;
+
+        if(stats.frame_time > stats.longest_frame_time) {
+            stats.longest_frame_time = stats.frame_time;
+            stats.longest_frame_number = frame_number;
+        }
+
+        frame_number++;
     }
 
 }
@@ -750,27 +673,61 @@ void Engine::imgui_new_frame() {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    if(ImGui::Begin("background")) {
-        ImGui::SliderFloat("Render Scale: ", &render_scale, 0.3f, 1.f);
+    if(ImGui::Begin("User Controls")) {
 
-        ComputeEffect& selected = compute_effects[current_compute_effect];
-        ImGui::Text("Selected effect: ", selected.name);
+        if(ImGui::CollapsingHeader("Lighting Controls")) {
+            ImGui::Text("Light Data");
+            ImGui::SliderFloat("Sunlight Direction", &sunlight_angle, 0.0f, 360.0f);
+            ImGui::Checkbox("Use Perspective Light Projection", &use_perspective_light_projection);
+            ImGui::SliderFloat("(Perspective) Light Distance: ", &sunlight_light_distance, 1.0f, 20.0f);
 
-        ImGui::SliderInt("Effect Index", &current_compute_effect, 0, compute_effects.size() - 1);
+            ImGui::Text("Shadow Data");
+            ImGui::SliderFloat("Ambient Occlusion Strength", &ambient_occlusion_strength, 0.0f, 5.0f);
+            ImGui::InputFloat("Shadow Bias Scalar", &shadow_bias_scalar, 0.0f, 0.0f, "%.6f");
+            ImGui::Text("Shadow Softening Kernel Size: %d", shadow_softening_kernel_size);
+            if (ImGui::RadioButton("1", shadow_softening_kernel_size == 1))
+            {
+                shadow_softening_kernel_size = 1;
+            }
+            ImGui::SameLine();
+            if (ImGui::RadioButton("3", shadow_softening_kernel_size == 3))
+            {
+                shadow_softening_kernel_size = 3;
+            }
+            ImGui::SameLine();
+            if (ImGui::RadioButton("5", shadow_softening_kernel_size == 5))
+            {
+                shadow_softening_kernel_size = 5;
+            }
+            ImGui::SameLine();
+            if (ImGui::RadioButton("7", shadow_softening_kernel_size == 7))
+            {
+                shadow_softening_kernel_size = 7;
+            }
 
-        ImGui::InputFloat4("data1", (float*) &selected.data.data1);
-        ImGui::InputFloat4("data2", (float*) &selected.data.data2);
-        ImGui::InputFloat4("data3", (float*) &selected.data.data3);
-        ImGui::InputFloat4("data4", (float*) &selected.data.data4);
+
+        }
+
+        if(ImGui::CollapsingHeader("Background Controls")) {
+            ComputeEffect& selected = compute_effects[current_compute_effect];
+            ImGui::Text("Selected effect: %s", selected.name);
+            ImGui::SliderInt("Effect Index", &current_compute_effect, 0, compute_effects.size() - 1);
+            ImGui::InputFloat4("data1", (float*) &selected.data.data1);
+            ImGui::InputFloat4("data2", (float*) &selected.data.data2);
+        }
+
     }
     ImGui::End();
 
     if(ImGui::Begin("Stats")) {
-        ImGui::Text("frame time %f ms", stats.frame_time);
-        ImGui::Text("draw time %f ms", stats.mesh_draw_time);
-        ImGui::Text("update time %f ms", stats.scene_update_time);
-        ImGui::Text("triangles %i", stats.triangle_count);
-        ImGui::Text("draws %i", stats.draw_call_count);
+        ImGui::Text("Frame Time: %f ms", stats.frame_time);
+        ImGui::Text("Longest Frame Time: %f ms. On frame # %d", stats.longest_frame_time, stats.longest_frame_number);
+        ImGui::Text("Draw Time: %f ms", stats.mesh_draw_time);
+        ImGui::Text("Update Scene Function Time: %f ms", stats.scene_update_time);
+        ImGui::Text("Triangle Count: %i", stats.triangle_count);
+        ImGui::Text("Draw Count %i", stats.draw_call_count);
+        glm::vec3 cam_pos = camera.get_position();
+        ImGui::Text("Camera position: (%f, %f, %f)", cam_pos.x, cam_pos.y, cam_pos.z);
     }
     ImGui::End();
 
@@ -799,15 +756,24 @@ void Engine::draw() {
     VkImage curr_swapchain_image = swapchain.get_swapchain_image(swapchain_image_index);
     VkImageView curr_swapchain_image_view = swapchain.get_swapchain_image_view(swapchain_image_index);
 
-    draw_extent.width = std::min(swapchain.extent.width, draw_image.extent.width) * render_scale; // accounts for if the swapchain is larger than the draw image
-    draw_extent.height = std::min(swapchain.extent.height, draw_image.extent.height) * render_scale;
+    draw_extent.width = std::min(swapchain.extent.width, draw_image.extent.width); //  * render_scale; // accounts for if the swapchain is larger than the draw image
+    draw_extent.height = std::min(swapchain.extent.height, draw_image.extent.height); //  * render_scale;
 
     VkCommandBuffer cmd = get_current_frame().main_command_buffer;
     VK_CHECK(vkResetCommandBuffer(cmd, 0));
     VkCommandBufferBeginInfo begin_info = vk_init::get_command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
     VK_CHECK(vkBeginCommandBuffer(cmd, &begin_info));
 
-    // transition from undefined (image was just created), to general (for the clear operation)
+    // draw shadow map TODO
+    // set up shadow map image to hold depth information
+    vk_image::transition_image_layout(cmd, shadow_map_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+
+    draw_shadow_map(cmd);
+
+    // set up shadow map image to be read from
+    vk_image::transition_image_layout_specify_aspect(cmd, shadow_map_image.image, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    // transition from undefined (image either created or in unknown state), to general (for the clear operation)
     vk_image::transition_image_layout(cmd, draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
     draw_background(cmd);
@@ -875,38 +841,58 @@ void Engine::update_scene() {
     camera.update();
 
     main_draw_context.opaque_surfaces.clear();
-//
-//    {
-//        glm::mat4 scale = glm::scale(glm::vec3(5, .2, 5));
-//        glm::mat4 translation = glm::translate(glm::vec3(0, -1, 0));
-//
-//        loaded_nodes["Cube"]->draw(translation * scale, main_draw_context);
-//    }
-//
-//    loaded_nodes["LOD3spShape"]->draw(glm::scale(glm::vec3(0.02)), main_draw_context);
-//    loaded_nodes["King_Shared"]->draw(glm::scale(glm::vec3(1)), main_draw_context);
-//
-//    for(int x = -3; x < 3; x++) {
-//        glm::mat4 scale = glm::scale(glm::vec3(0.2));
-//        glm::mat4 translation = glm::translate(glm::vec3(x, 0, -2));
-//
-//        loaded_nodes["Cube"]->draw(translation * scale, main_draw_context);
-//    }
 
-    // loaded_scenes["Duck.glb"]->draw(glm::scale(glm::vec3(0.02)), main_draw_context);
     loaded_scenes["ABeautifulGame.gltf"]->draw(glm::scale(glm::vec3(1.0f)), main_draw_context);
 
     glm::mat4 view = camera.get_view_matrix();
-    glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)draw_image.extent.width / (float)draw_image.extent.height, 0.1f, 10000.0f);
-    projection[1][1] *= -1;
+    glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)draw_image.extent.width / (float)draw_image.extent.height, 0.0001f, 10000.0f);
+    projection[1][1] *= -1; // flip y direction
 
     scene_data.view = view;
     scene_data.proj = projection;
     scene_data.view_proj = projection * view;
 
-    scene_data.ambient_color = glm::vec4(0.1f);
-    scene_data.sunlight_color = glm::vec4(1.0f);
-    scene_data.sunlight_direction = glm::vec4(0, 1, 0.5f, 1);
+    scene_data.ambient_color = glm::vec4(0.05f);
+
+    ComputeEffect& effect = compute_effects[current_compute_effect];
+    if(strcmp("gradient effect", effect.name) == 0) {
+        glm::vec4 additional_color = glm::mix(effect.data.data1, effect.data.data2, 0.25f);
+        scene_data.sunlight_color = glm::mix(glm::vec4(1.0f), additional_color, 0.5f);
+    } else {
+        scene_data.sunlight_color = glm::vec4(1.0f);
+    }
+
+    // set x and z based off of sunlight angle user input
+    float r = 3.0f;
+    float x = glm::cos(glm::radians(sunlight_angle));
+    float z = glm::sin(glm::radians(sunlight_angle));
+    scene_data.sunlight_direction = glm::vec4(x, 1, z, 1);
+
+    scene_data.ambient_occlusion_strength = ambient_occlusion_strength;
+    scene_data.shadow_bias_scalar = shadow_bias_scalar;
+    scene_data.shadow_softening_kernel_size = shadow_softening_kernel_size;
+
+    glm::vec3 sunlight_position_for_shadow = sunlight_light_distance * glm::normalize(glm::vec3(scene_data.sunlight_direction));
+
+    // world space to light-projection-space
+    float near_plane = 1.0f;
+    float far_plane = sunlight_light_distance * 1.5f;
+    float ortho_size = 0.5f;
+
+    glm::mat4 light_projection;
+    if(use_perspective_light_projection) {
+        light_projection = glm::perspective(glm::radians(70.0f), 1.0f, near_plane, far_plane);
+    } else {
+        light_projection = glm::ortho(-ortho_size, ortho_size, -ortho_size, ortho_size, near_plane, far_plane);
+    }
+    light_projection[1][1] *= -1;
+
+    glm::mat4 light_view_matrix = glm::lookAt(sunlight_position_for_shadow,
+                                           glm::vec3(0.0f, 0.0f, 0.0f),
+                                           glm::vec3(0.0f, 1.0f, 0.0f));
+
+    light_source_data.light_view_matrix = light_view_matrix;
+    light_source_data.light_projection_matrix = light_projection;
 
     auto update_scene_end = std::chrono::system_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::microseconds >(update_scene_end - update_scene_start);
@@ -933,16 +919,83 @@ void Engine::draw_background(VkCommandBuffer cmd) {
     vkCmdDispatch(cmd, std::ceil(draw_image.extent.width / 16.0), std::ceil(draw_image.extent.height / 16.0), 1);
 }
 
+
+void Engine::draw_shadow_map(VkCommandBuffer cmd) {
+
+    VkRenderingAttachmentInfo depth_attachment_info = vk_init::get_depth_attachment_info(shadow_map_image.view);
+    VkExtent2D render_extent = {
+            .width = shadow_map_image.extent.width,
+            .height = shadow_map_image.extent.height
+    };
+    VkRenderingInfo render_info = vk_init::get_rendering_info(render_extent, {}, &depth_attachment_info);
+
+    vkCmdBeginRendering(cmd, &render_info);
+
+    VkViewport viewport = {
+            .x = 0,
+            .y = 0,
+            .width = static_cast<float>(render_extent.width),
+            .height = static_cast<float>(render_extent.height),
+            .minDepth = 0.f,
+            .maxDepth = 1.f
+    };
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+    VkRect2D scissor = {
+            .offset = {
+                    .x = 0,
+                    .y = 0
+            },
+            .extent = {
+                    .width = render_extent.width,
+                    .height = render_extent.height,
+            }
+    };
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    DescriptorAllocatorGrowable& frame_descriptor_allocator = get_current_frame().frame_descriptors;
+    DeletionQueue& frame_deletion_queue = get_current_frame().deletion_queue;
+
+    get_current_frame().light_data_descriptor_set = shadow_pipeline.create_frame_light_data_descriptor_set(
+            device.device,
+            light_source_data,
+            allocator,
+            frame_descriptor_allocator,
+            frame_deletion_queue);
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline.pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline.pipeline_layout, 0, 1, &get_current_frame().light_data_descriptor_set, 0, nullptr);
+
+    for(const RenderObject& draw : main_draw_context.opaque_surfaces) {
+      // Tell the GPU which material-specific set of variables in memory we want to currently use
+        vkCmdBindIndexBuffer(cmd, draw.index_buffer, 0, VK_INDEX_TYPE_UINT32);
+
+        GPUDrawPushConstants push_constants = {
+                .world_matrix = draw.transform,
+                .vertex_buffer_address = draw.vertex_buffer_address
+        };
+        vkCmdPushConstants(cmd, shadow_pipeline.pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &push_constants);
+
+        vkCmdDrawIndexed(cmd, draw.index_count, 1, draw.first_index, 0, 0);
+    }
+
+    vkCmdEndRendering(cmd);
+}
+
+
 void Engine::draw_geometry(VkCommandBuffer cmd) {
 
     stats.draw_call_count = 0;
     stats.triangle_count = 0;
     auto draw_geometry_start = std::chrono::system_clock::now();
 
-    VkRenderingAttachmentInfo color_attachment_info = vk_init::get_color_attachment_info(draw_image.view, nullptr);
+    VkRenderingAttachmentInfo color_attachment = vk_init::get_color_attachment_info(draw_image.view, nullptr);
+    std::vector<VkRenderingAttachmentInfo> color_attachment_infos = {
+            color_attachment
+    };
     VkRenderingAttachmentInfo depth_attachment_info = vk_init::get_depth_attachment_info(depth_image.view);
 
-    VkRenderingInfo render_info = vk_init::get_rendering_info(swapchain.extent, &color_attachment_info, &depth_attachment_info);
+    VkRenderingInfo render_info = vk_init::get_rendering_info(swapchain.extent, color_attachment_infos, &depth_attachment_info);
 
     vkCmdBeginRendering(cmd, &render_info);
 
@@ -968,7 +1021,14 @@ void Engine::draw_geometry(VkCommandBuffer cmd) {
     };
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
+    VkDescriptorSet shadow_map_descriptor_set = shadow_pipeline.create_frame_shadow_map_descriptor_set(device.device,
+                                                                                                       shadow_map_image,
+                                                                                                       default_linear_sampler,
+                                                                                                       get_current_frame().frame_descriptors,
+                                                                                                       shadow_map_descriptor_set_layout);
+
     // Create the GPU scene data buffer for this frame
+    // This handles the data-race which may occur if we updated a uniform buffer being read-from by inflight shader executions
     Buffer gpu_scene_data_buffer;
     gpu_scene_data_buffer.init(allocator, sizeof(GPUSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
     get_current_frame().deletion_queue.push_function([=, this](){
@@ -992,8 +1052,11 @@ void Engine::draw_geometry(VkCommandBuffer cmd) {
     for(const RenderObject& draw : main_draw_context.opaque_surfaces) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 0, 1, &global_descriptor_set, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 1, 1, &get_current_frame().light_data_descriptor_set, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 2, 1, &shadow_map_descriptor_set, 0, nullptr);
+
         // Tell the GPU which material-specific set of variables in memory we want to currently use
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 1, 1, &draw.material->material_set, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 3, 1, &draw.material->material_set, 0, nullptr);
 
         vkCmdBindIndexBuffer(cmd, draw.index_buffer, 0, VK_INDEX_TYPE_UINT32);
 
@@ -1001,7 +1064,7 @@ void Engine::draw_geometry(VkCommandBuffer cmd) {
                 .world_matrix = draw.transform,
                 .vertex_buffer_address = draw.vertex_buffer_address
         };
-        vkCmdPushConstants(cmd, draw.material->pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &push_constants);
+        vkCmdPushConstants(cmd, draw.material->pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUDrawPushConstants), &push_constants);
 
         vkCmdDrawIndexed(cmd, draw.index_count, 1, draw.first_index, 0, 0);
 
@@ -1017,12 +1080,13 @@ void Engine::draw_geometry(VkCommandBuffer cmd) {
 }
 
 void Engine::draw_imgui(VkCommandBuffer cmd, VkImageView target_image_view) {
-    VkRenderingAttachmentInfo color_attachment_info = vk_init::get_color_attachment_info(target_image_view, nullptr);
-    // VkRenderingInfo rendering_info = vk_init::get_rendering_info(swapchain.extent, &color_attachment_info, nullptr);
-    VkRenderingInfo rendering_info = vk_init::get_rendering_info(draw_extent, &color_attachment_info, nullptr);
+
+    std::vector<VkRenderingAttachmentInfo> color_attachment_infos = {
+            vk_init::get_color_attachment_info(target_image_view, nullptr)
+    };
+    VkRenderingInfo rendering_info = vk_init::get_rendering_info(draw_extent, color_attachment_infos, nullptr);
 
     vkCmdBeginRendering(cmd, &rendering_info);
-    // ImGui::Render();
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
     vkCmdEndRendering(cmd);
 }
@@ -1031,9 +1095,6 @@ void Engine::draw_imgui(VkCommandBuffer cmd, VkImageView target_image_view) {
 FrameData& Engine::get_current_frame() {
     return frames[frame_number % FRAME_OVERLAP];
 }
-
-
-
 
 void Engine::resize_swapchain() {
     vkDeviceWaitIdle(device.device);
@@ -1046,112 +1107,3 @@ void Engine::resize_swapchain() {
                    window);
     swapchain_resize_requested = false;
 }
-
-
-/*
-void Engine::init_triangle_pipeline() {
-
-    VkShaderModule triangle_vert_shader;
-    if(!vk_file::load_shader_module("../shaders/triangle.vert.spv", device.device, &triangle_vert_shader)) {
-        fmt::print("Error loading triangle vert shader\n");
-    } else {
-        fmt::print("Loaded triangle vert shader successfully\n");
-    }
-
-    VkShaderModule triangle_frag_shader;
-    if(!vk_file::load_shader_module("../shaders/triangle.frag.spv", device.device, &triangle_frag_shader)) {
-        fmt::print("Error loading triangle frag shader\n");
-    } else {
-        fmt::print("Loaded triangle frag shader successfully\n");
-    }
-
-    // get empty pipeline layout
-    VkPipelineLayoutCreateInfo layout_info = vk_init::get_pipeline_layout_create_info({}, {});
-    VK_CHECK(vkCreatePipelineLayout(device.device, &layout_info, nullptr, &triangle_pipeline_layout));
-
-    PipelineBuilder builder;
-    builder.layout = triangle_pipeline_layout;
-    builder.set_shaders(triangle_vert_shader, triangle_frag_shader);
-    builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-    builder.set_rasterizer_polygon_mode(VK_POLYGON_MODE_FILL);
-    builder.set_rasterizer_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_CLOCKWISE);
-    builder.set_multisampling_none();
-    builder.disable_blending();
-    builder.disable_depth_test();
-
-    builder.set_color_attachment_format(draw_image.format);
-    builder.set_depth_format(depth_image.format);
-
-    triangle_pipeline = builder.build_pipeline(device.device);
-
-    vkDestroyShaderModule(device.device, triangle_vert_shader, nullptr);
-    vkDestroyShaderModule(device.device, triangle_frag_shader, nullptr);
-
-    engine_deletion_queue.push_function([&]() {
-        vkDestroyPipelineLayout(device.device, triangle_pipeline_layout, nullptr);
-        vkDestroyPipeline(device.device, triangle_pipeline, nullptr);
-    });
-
-}
-
-
-void Engine::init_mesh_pipeline() {
-    VkShaderModule mesh_vert_shader;
-    if(!vk_file::load_shader_module("../shaders/colored_triangle_mesh.vert.spv", device.device, &mesh_vert_shader)) {
-        fmt::print("Error loading colored triangle mesh vert shader\n");
-    } else {
-        fmt::print("Loaded colored triangle mesh vert shader successfully\n");
-    }
-
-    VkShaderModule triangle_frag_shader;
-    if(!vk_file::load_shader_module("../shaders/tex_image.frag.spv", device.device, &triangle_frag_shader)) {
-        fmt::print("Error loading tex image frag shader\n");
-    } else {
-        fmt::print("Loaded tex image shader successfully\n");
-    }
-
-    VkPushConstantRange buffer_range = {
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-            .offset = 0,
-            .size = sizeof(GPUDrawPushConstants),
-    };
-
-    // fmt::print("Graphics Push constant size: {}\n", sizeof(GPUDrawPushConstants));
-
-    std::vector<VkPushConstantRange> mesh_push_constant_ranges {
-        buffer_range
-    };
-
-    std::vector<VkDescriptorSetLayout> mesh_descriptor_set_layouts {
-        single_image_descriptor_set_layout
-    };
-
-    VkPipelineLayoutCreateInfo pipeline_layout_info = vk_init::get_pipeline_layout_create_info(mesh_descriptor_set_layouts, mesh_push_constant_ranges);
-    VK_CHECK(vkCreatePipelineLayout(device.device, &pipeline_layout_info, nullptr, &mesh_pipeline_layout));
-
-    PipelineBuilder builder;
-    builder.layout = mesh_pipeline_layout;
-    builder.set_shaders(mesh_vert_shader, triangle_frag_shader);
-    builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-    builder.set_rasterizer_polygon_mode(VK_POLYGON_MODE_FILL);
-    builder.set_rasterizer_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_CLOCKWISE);
-    builder.set_multisampling_none();
-    // builder.enable_blending_additive();
-    builder.enable_blending_alphablend();
-    builder.enable_depth_test(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
-
-    builder.set_color_attachment_format(draw_image.format);
-    builder.set_depth_format(VK_FORMAT_UNDEFINED);
-
-    mesh_pipeline = builder.build_pipeline(device.device);
-
-    vkDestroyShaderModule(device.device, mesh_vert_shader, nullptr);
-    vkDestroyShaderModule(device.device, triangle_frag_shader, nullptr);
-
-    engine_deletion_queue.push_function([&]() {
-        vkDestroyPipelineLayout(device.device, mesh_pipeline_layout, nullptr);
-        vkDestroyPipeline(device.device, mesh_pipeline, nullptr);
-    });
-}
-
-*/

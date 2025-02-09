@@ -87,7 +87,7 @@ void main() {
 
     float ambient_occlusion = 1.0f + (material_data.ambient_occlusion_strength * scene_data.ambient_occlusion_scalar) * (texture(ambient_occlusion_tex, in_uv).x - 1.0f);
 
-    // Base Color, corrected into linear space for sRGB encoding
+    // Base Color, corrected into linear space for sRGB encoded images (GLTF standard)
     vec3 base_color = pow((texture(color_tex, in_uv) * material_data.color_factors).xyz, vec3(2.2f));
 
     // vertex normal

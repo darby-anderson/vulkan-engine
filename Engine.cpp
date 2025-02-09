@@ -120,7 +120,7 @@ void Engine::init_draw_and_depth_images() {
     // DRAW image
     // Create an image to draw into each frame, it will eventually be copied into the swapchain
     draw_image.extent = draw_image_extent;
-    draw_image.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    draw_image.format = VK_FORMAT_R32G32B32A32_SFLOAT;
 
     VkImageUsageFlags draw_image_usage_flags = {};
     draw_image_usage_flags |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
@@ -304,10 +304,10 @@ void Engine::init_background_pipelines() {
     VkPushConstantRange compute_push_constant_range = {
             .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
             .offset = 0,
-            .size = sizeof(ComputePushConstants),
+            .size = sizeof(BackgroundComputePushConstants),
     };
 
-    fmt::print("Compute push constant size: {}\n", sizeof(ComputePushConstants));
+    fmt::print("Compute push constant size: {}\n", sizeof(BackgroundComputePushConstants));
 
     std::vector<VkPushConstantRange> background_push_constant_ranges = {
             compute_push_constant_range
@@ -320,7 +320,7 @@ void Engine::init_background_pipelines() {
             background_push_constant_ranges,
             engine_deletion_queue);
 
-    ComputePushConstants default_gradient_data = {
+    BackgroundComputePushConstants default_gradient_data = {
             .data1 = glm::vec4(1, 0, 0, 1),
             .data2 = glm::vec4(0, 0, 1, 1)
     };
@@ -339,7 +339,7 @@ void Engine::init_background_pipelines() {
             background_push_constant_ranges,
             engine_deletion_queue);
 
-    ComputePushConstants default_sky_data = {
+    BackgroundComputePushConstants default_sky_data = {
             .data1 = glm::vec4(0.1, 0.2, 0.4 ,0.97),
     };
 
@@ -355,10 +355,37 @@ void Engine::init_background_pipelines() {
 
 }
 
+void Engine::init_tone_mapping_pipeline() {
+
+    std::vector<VkDescriptorSetLayout> tone_mapping_descriptor_layouts = {
+            draw_image_descriptor_layout
+    };
+
+    VkPushConstantRange compute_push_constant_range = {
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            .offset = 0,
+            .size = sizeof(ToneMappingComputePushConstants),
+    };
+
+    std::vector<VkPushConstantRange> tone_mapping_push_constant_ranges = {
+            compute_push_constant_range
+    };
+
+    tone_mapping_pipeline.init(
+            device.device,
+            "../shaders/tone_mapping.comp.spv",
+            tone_mapping_descriptor_layouts,
+            tone_mapping_push_constant_ranges,
+            engine_deletion_queue
+    );
+
+}
+
 void Engine::init_pipelines() {
 
     // COMPUTE PIPELINES
     init_background_pipelines();
+    init_tone_mapping_pipeline();
 
     // SHADOW PIPELINE
     shadow_pipeline.init(device.device, shadow_map_image, light_source_descriptor_set_layout);
@@ -704,7 +731,19 @@ void Engine::imgui_new_frame() {
             {
                 shadow_softening_kernel_size = 7;
             }
+        }
 
+        if(ImGui::CollapsingHeader("HDR/Tone Mapping Controls")) {
+
+            ImGui::Text("Current tone mapping strategy: %s", tone_mapping_strategies[tone_mapping_strategy_index]);
+            if(ImGui::Combo("Tone Mapping Strategy", &tone_mapping_strategy_index, tone_mapping_strategies, IM_ARRAYSIZE(tone_mapping_strategies))) {
+                fmt::print("Updated tone mapping strategy\n");
+            }
+
+            // Uncharted 2 tone-mapping uses an exposure parameter
+            if(tone_mapping_strategy_index == 2) {
+                ImGui::SliderFloat("Exposure", &hdr_exposure, 0.01f, 10.0f);
+            }
 
         }
 
@@ -764,7 +803,7 @@ void Engine::draw() {
     VkCommandBufferBeginInfo begin_info = vk_init::get_command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
     VK_CHECK(vkBeginCommandBuffer(cmd, &begin_info));
 
-    // draw shadow map TODO
+    // draw shadow map
     // set up shadow map image to hold depth information
     vk_image::transition_image_layout(cmd, shadow_map_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
@@ -783,8 +822,13 @@ void Engine::draw() {
 
     draw_geometry(cmd);
 
+    // HDR Mapping using compute shaders
+    vk_image::transition_image_layout(cmd, draw_image.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+
+    do_tone_mapping(cmd);
+
     // make draw image a good source, make swapchain image a good destination
-    vk_image::transition_image_layout(cmd, draw_image.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    vk_image::transition_image_layout(cmd, draw_image.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     vk_image::transition_image_layout(cmd, curr_swapchain_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     // copy draw image into swapchain
@@ -894,6 +938,10 @@ void Engine::update_scene() {
     light_source_data.light_view_matrix = light_view_matrix;
     light_source_data.light_projection_matrix = light_projection;
 
+    // HDR data
+    tone_mapping_data.exposure = hdr_exposure;
+    tone_mapping_data.tone_mapping_strategy = tone_mapping_strategy_index;
+
     auto update_scene_end = std::chrono::system_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::microseconds >(update_scene_end - update_scene_start);
     stats.scene_update_time = elapsed.count() / 1000.f;
@@ -913,12 +961,21 @@ void Engine::draw_background(VkCommandBuffer cmd) {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_effect.pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_effect.layout, 0, 1, &draw_image_descriptors, 0, nullptr);
 
-    vkCmdPushConstants(cmd, gradient_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &current_effect.data);
+    vkCmdPushConstants(cmd, current_effect.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(BackgroundComputePushConstants), &current_effect.data);
 
     // divide work into 16 parts for the 16 workgroups
     vkCmdDispatch(cmd, std::ceil(draw_image.extent.width / 16.0), std::ceil(draw_image.extent.height / 16.0), 1);
 }
 
+void Engine::do_tone_mapping(VkCommandBuffer cmd) {
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, tone_mapping_pipeline.pipeline);
+
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, tone_mapping_pipeline.layout, 0, 1, &draw_image_descriptors, 0, nullptr);
+
+    vkCmdPushConstants(cmd, tone_mapping_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ToneMappingComputePushConstants), &tone_mapping_data);
+
+    vkCmdDispatch(cmd, std::ceil(draw_image.extent.width / 16.0), std::ceil(draw_image.extent.height / 16.0), 1);
+}
 
 void Engine::draw_shadow_map(VkCommandBuffer cmd) {
 

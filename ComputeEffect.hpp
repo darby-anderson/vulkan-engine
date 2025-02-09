@@ -7,7 +7,7 @@
 #include "Common.hpp"
 #include "ComputePipeline.hpp"
 
-struct ComputePushConstants {
+struct BackgroundComputePushConstants {
     glm::vec4 data1;
     glm::vec4 data2;
     glm::vec4 data3;
@@ -20,5 +20,5 @@ struct ComputeEffect {
     VkPipeline pipeline;
     VkPipelineLayout layout;
 
-    ComputePushConstants data;
+    BackgroundComputePushConstants data;
 };

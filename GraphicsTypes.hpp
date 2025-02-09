@@ -37,6 +37,11 @@ struct GPUDrawPushConstants {
     VkDeviceAddress vertex_buffer_address;
 };
 
+struct ToneMappingComputePushConstants {
+    float exposure;
+    uint32_t tone_mapping_strategy; // 0 - No Tone Mapping, 1 - Reinhard Tone Mapping
+};
+
 struct alignas(16) Vertex {
     glm::vec3 pos = glm::vec3();
     uint32_t  buf = 0;

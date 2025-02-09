@@ -26,9 +26,9 @@ float NoisyStarField( in vec2 vSamplePos, float fThreshhold )
 {
     float StarVal = Noise2d( vSamplePos );
     if ( StarVal >= fThreshhold )
-    StarVal = pow( (StarVal - fThreshhold)/(1.0 - fThreshhold), 6.0 );
+        StarVal = pow( (StarVal - fThreshhold)/(1.0 - fThreshhold), 6.0 );
     else
-    StarVal = 0.0;
+        StarVal = 0.0;
     return StarVal;
 }
 

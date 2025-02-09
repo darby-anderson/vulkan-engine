@@ -81,6 +81,7 @@ private:
     void init_default_data();
     void init_imgui();
     void init_background_pipelines();
+    void init_tone_mapping_pipeline();
 
     void load_gltf_file(const std::string& file_path);
 
@@ -89,6 +90,7 @@ private:
     void draw_shadow_map(VkCommandBuffer cmd);
     void draw_geometry(VkCommandBuffer cmd);
     void draw_imgui(VkCommandBuffer cmd, VkImageView target_image_view);
+    void do_tone_mapping(VkCommandBuffer cmd);
 
     void resize_swapchain();
 
@@ -118,6 +120,13 @@ private:
 
     ComputePipeline gradient_pipeline;
     ComputePipeline sky_pipeline;
+
+
+    ComputePipeline tone_mapping_pipeline;
+    ToneMappingComputePushConstants tone_mapping_data {
+        .exposure = 1.0f,
+        .tone_mapping_strategy = 0
+    };
 
     FrameData frames[FRAME_OVERLAP];
     uint32_t frame_number;
@@ -161,6 +170,15 @@ private:
     float shadow_bias_scalar = 0.0001f;
     bool use_perspective_light_projection = false;
     int shadow_softening_kernel_size = 3;
+
+    float hdr_exposure = 1.0f;
+    int tone_mapping_strategy_index = 0;
+    const char* tone_mapping_strategies[3] = {
+            "None",
+            "Simple RGB Reinhard",
+            "Hable-Filmic/Uncharted 2"
+    };
+
 
     // Model Data
     DescriptorAllocatorGrowable model_descriptor_allocator;

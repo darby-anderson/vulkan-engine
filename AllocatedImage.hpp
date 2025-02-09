@@ -8,7 +8,7 @@
 #include "ImmediateSubmitCommandBuffer.hpp"
 
 struct AllocatedImage {
-    VkImage image;
+    VkImage image = VK_NULL_HANDLE;
     VkImageView view;
     VmaAllocator allocator;
     VmaAllocation allocation;

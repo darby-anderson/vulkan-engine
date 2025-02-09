@@ -131,17 +131,33 @@ std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator al
 //    }
 
     out_gltf->images.resize(tinyModel->images.size());
-    for(int i = 0; i < tinyModel->images.size(); i++) {
-        tinygltf::Image& image = tinyModel->images[i];
+//    for(int i = 0; i < tinyModel->images.size(); i++) {
+////        tinygltf::Image& image = tinyModel->images[i];
+////        VkExtent3D extent = {
+////                .width = static_cast<uint32_t>(image.width),
+////                .height = static_cast<uint32_t>(image.height),
+////                .depth = 1
+////        };
+////
+////        out_gltf->images[i].init_with_data(immediate_submit_command_buffer, device, allocator, image.image.data(), extent, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+//    }
+
+    // Load image lambda
+    auto get_image = [&](int index, VkFormat image_format) {
+        if(out_gltf->images[index].image != VK_NULL_HANDLE) {
+            return out_gltf->images[index];
+        }
+
+        tinygltf::Image& image = tinyModel->images[index];
         VkExtent3D extent = {
                 .width = static_cast<uint32_t>(image.width),
                 .height = static_cast<uint32_t>(image.height),
                 .depth = 1
         };
 
-        out_gltf->images[i].init_with_data(immediate_submit_command_buffer, device, allocator, image.image.data(), extent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
-    }
-
+        out_gltf->images[index].init_with_data(immediate_submit_command_buffer, device, allocator, image.image.data(), extent, image_format, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+        return out_gltf->images[index];
+    };
 
     // Load materials
     size_t material_buffer_size = sizeof(GLTFMetallic_Roughness::MaterialConstants) * tinyModel->materials.size();
@@ -201,7 +217,7 @@ std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator al
 
         if(includes_color_texture) { // COLOR
             tinygltf::Texture& texture = tinyModel->textures[base_color_tex_index];
-            resources.color_image = out_gltf->images[texture.source];
+            resources.color_image = get_image(texture.source, VK_FORMAT_R8G8B8A8_SRGB); // out_gltf->images[texture.source];
             resources.color_sampler = out_gltf->samplers[texture.sampler];
         } else {
             resources.color_image = texture_load_error_image;
@@ -210,7 +226,7 @@ std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator al
 
         if(includes_metal_roughness_texture) { // METAL ROUGHNESS
             tinygltf::Texture& texture = tinyModel->textures[metal_rough_tex_index];
-            resources.metal_rough_image = out_gltf->images[texture.source];
+            resources.metal_rough_image = get_image(texture.source, VK_FORMAT_R8G8B8A8_UNORM); // out_gltf->images[texture.source];
             resources.metal_rough_sampler = out_gltf->samplers[texture.sampler];
         } else {
             resources.metal_rough_image = texture_load_error_image;
@@ -219,7 +235,7 @@ std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator al
 
         if(includes_normal_texture) { // NORMAL
             tinygltf::Texture& texture = tinyModel->textures[normal_texture_index];
-            resources.normal_image = out_gltf->images[texture.source];
+            resources.normal_image = get_image(texture.source, VK_FORMAT_R8G8B8A8_UNORM); // out_gltf->images[texture.source];
             resources.normal_sampler = out_gltf->samplers[texture.sampler];
         } else {
             resources.normal_image = texture_load_error_image;
@@ -228,7 +244,7 @@ std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator al
 
         if(includes_ambient_occlusion_texture) { // AMBIENT_OCCLUSION
             tinygltf::Texture& texture = tinyModel->textures[ambient_occlusion_tex_index];
-            resources.ambient_occlusion_image = out_gltf->images[texture.source];
+            resources.ambient_occlusion_image = get_image(texture.source, VK_FORMAT_R8G8B8A8_UNORM); //out_gltf->images[texture.source];
             resources.ambient_occlusion_sampler = out_gltf->samplers[texture.sampler];
         } else {
             resources.ambient_occlusion_image = texture_load_error_image;

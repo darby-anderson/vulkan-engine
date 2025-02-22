@@ -139,7 +139,7 @@ void DeferredRenderer::init(VkDevice device, VmaAllocator allocator, AllocatedIm
 
 }
 
-void DeferredRenderer::draw(VkCommandBuffer cmd1, VkCommandBuffer cmd2,
+void DeferredRenderer::draw(VkCommandBuffer cmd, VkCommandBuffer cmd2,
                             DescriptorAllocatorGrowable& frame_descriptor_allocator,
                             DeletionQueue& frame_deletion_queue, AllocatedImage& shadow_map,
                             VkSampler shadow_map_sampler, VkSampler g_buffer_sampler, GPUSceneData& current_scene_data,
@@ -174,10 +174,10 @@ void DeferredRenderer::draw(VkCommandBuffer cmd1, VkCommandBuffer cmd2,
 //            0, 0, nullptr, 0, nullptr, 0, nullptr
 //    );
 
-    vk_image::transition_image_layout(cmd1, world_normal_g_buffer.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    vk_image::transition_image_layout(cmd1, albedo_g_buffer.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    vk_image::transition_image_layout(cmd1, depth_g_buffer.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
-    vk_image::transition_image_layout(cmd1, draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    vk_image::transition_image_layout(cmd, world_normal_g_buffer.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    vk_image::transition_image_layout(cmd, albedo_g_buffer.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    vk_image::transition_image_layout(cmd, depth_g_buffer.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+    vk_image::transition_image_layout(cmd, draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
     // 1
     {
@@ -229,8 +229,74 @@ void DeferredRenderer::draw(VkCommandBuffer cmd1, VkCommandBuffer cmd2,
                 .pStencilAttachment = nullptr
         };
 
-        vkCmdBeginRendering(cmd1, &render_info);
-        vkCmdEndRendering(cmd1);
+        vkCmdBeginRendering(cmd, &render_info);
+
+        VkViewport viewport = {
+            .x = 0,
+            .y = 0,
+            .width = static_cast<float>(render_extent.width),
+            .height = static_cast<float>(render_extent.height),
+            .minDepth = 0.f,
+            .maxDepth = 1.f
+        };
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+        VkRect2D scissor = {
+            .offset = {
+                .x = 0,
+                .y = 0
+            },
+            .extent = {
+                .width = render_extent.width,
+                .height = render_extent.height,
+            }
+        };
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        // SET UP DESCRIPTOR SETS
+        // Create the GPU scene data buffer for this frame
+        // This handles the data-race which may occur if we updated a uniform buffer being read-from by inflight shader executions
+        Buffer gpu_scene_data_buffer;
+        gpu_scene_data_buffer.init(allocator, sizeof(GPUSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+        frame_deletion_queue.push_function([=, this](){
+            gpu_scene_data_buffer.destroy_buffer();
+        });
+
+        // Get the memory handle mapped to the buffer's allocation
+        GPUSceneData* scene_uniform_data = (GPUSceneData*)gpu_scene_data_buffer.info.pMappedData;
+        *scene_uniform_data = current_scene_data;
+
+        VkDescriptorSet scene_data_descriptor_set = frame_descriptor_allocator.allocate(device, scene_descriptor_set_layout, nullptr);
+
+        // write the buffer's handle into the descriptor set
+        // then update the descriptor set to use the correct buffer handle
+        DescriptorWriter writer;
+        writer.write_buffer(0, gpu_scene_data_buffer.buffer, sizeof(GPUSceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        writer.update_set(device, scene_data_descriptor_set);
+
+        for(const RenderObject& draw : draw_context.opaque_surfaces) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->deferred_rendering_geometry_pipeline->pipeline);
+
+            // BIND SCENE DATA BUFFER - set 0
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->deferred_rendering_geometry_pipeline->layout, 0, 1, &scene_data_descriptor_set, 0, nullptr);
+
+            // BIND MATERIAL DATA BUFFER - set 1
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->deferred_rendering_geometry_pipeline->layout, 1, 1, &draw.material->material_set, 0, nullptr);
+
+            // BIND INDEX BUFFER
+            vkCmdBindIndexBuffer(cmd, draw.index_buffer, 0, VK_INDEX_TYPE_UINT32);
+
+            // PUSH WORLD MATRIX AND VERTEX BUFFER ADDRESS
+            GPUDrawPushConstants push_constants = {
+                .world_matrix = draw.transform,
+                .vertex_buffer_address = draw.vertex_buffer_address
+            };
+            vkCmdPushConstants(cmd, draw.material->deferred_rendering_geometry_pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &push_constants);
+
+            vkCmdDrawIndexed(cmd, draw.index_count, 1, draw.first_index, 0, 0);
+        }
+
+        vkCmdEndRendering(cmd);
     }
 
     // 2
@@ -260,9 +326,11 @@ void DeferredRenderer::draw(VkCommandBuffer cmd1, VkCommandBuffer cmd2,
                 .pStencilAttachment = nullptr
         };
 
-        vkCmdBeginRendering(cmd1, &render_info);
-        vkCmdEndRendering(cmd1);
+        vkCmdBeginRendering(cmd, &render_info);
+        vkCmdEndRendering(cmd);
     }
+
+    vk_image::transition_image_layout(cmd, draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
     // transition from undefined (image either created or in unknown state), to general (for the clear operation)
 //    vk_image::transition_image_layout(cmd, draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);

@@ -894,6 +894,7 @@ void Engine::draw() {
                            &get_current_frame().light_data_descriptor_set);
 
     // make swapchain a valid destination, it is the renderer's responsibility to make the draw image a valid source
+    vk_image::transition_image_layout(cmd, draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     vk_image::transition_image_layout(cmd, curr_swapchain_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     // copy draw image into swapchain

@@ -24,7 +24,7 @@ public:
               ImmediateSubmitCommandBuffer& immediate_submit_command_buffer);
 
 
-    void draw(VkCommandBuffer cmd1, VkCommandBuffer cmd2,
+    void draw(VkCommandBuffer cmd, VkCommandBuffer cmd2,
               DescriptorAllocatorGrowable& frame_descriptor_allocator,
               DeletionQueue& frame_deletion_queue, AllocatedImage& shadow_map,
               VkSampler shadow_map_sampler, VkSampler g_buffer_sampler, GPUSceneData& current_scene_data,

@@ -63,8 +63,9 @@ VkDescriptorSet DescriptorAllocatorGrowable::allocate(VkDevice device, VkDescrip
 
         VkDescriptorPool next_pool_to_use = get_pool(device);
         alloc_info.descriptorPool = next_pool_to_use;
-        result = vkAllocateDescriptorSets(device, &alloc_info, &ds);
-        VK_CHECK(result);
+        VkResult result2 = vkAllocateDescriptorSets(device, &alloc_info, &ds);
+        fmt::print(stderr, "allocating descriptor sets. result: {}\n", static_cast<long long>(result2));
+        VK_CHECK(result2);
     }
 
     ready_pools.push_back(pool_to_use); // need to push our latest pool back since get_pool pops it out of the vector

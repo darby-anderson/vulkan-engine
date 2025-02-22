@@ -48,7 +48,7 @@ VkSamplerMipmapMode get_mipmap_mode(int filter_id) {
 }
 
 std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator allocator,
-                                                GLTFMetallic_Roughness& material_creator,
+                                                GLTFHDRMaterial& material_creator,
                                                 ImmediateSubmitCommandBuffer& immediate_submit_command_buffer,
                                                 AllocatedImage texture_load_error_image, VkSampler texture_load_error_sampler,
                                                 const std::string& filePath, bool override_color_with_normal) {
@@ -160,11 +160,11 @@ std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator al
     };
 
     // Load materials
-    size_t material_buffer_size = sizeof(GLTFMetallic_Roughness::MaterialConstants) * tinyModel->materials.size();
+    size_t material_buffer_size = sizeof(GLTFHDRMaterial::MaterialConstants) * tinyModel->materials.size();
     out_gltf->material_data_buffer.init(allocator, material_buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
     int material_data_index = 0;
-    auto scene_material_constants = (GLTFMetallic_Roughness::MaterialConstants*) out_gltf->material_data_buffer.info.pMappedData;
+    auto scene_material_constants = (GLTFHDRMaterial::MaterialConstants*) out_gltf->material_data_buffer.info.pMappedData;
 
     out_gltf->materials.resize(tinyModel->materials.size());
     for(int i = 0; i < tinyModel->materials.size(); i++) {
@@ -183,7 +183,7 @@ std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator al
         bool includes_ambient_occlusion_texture = ambient_occlusion_tex_index != -1;
 
         // Fill material constants
-        GLTFMetallic_Roughness::MaterialConstants constants;
+        GLTFHDRMaterial::MaterialConstants constants;
         constants.color_factors.x = tiny_mat_data.pbrMetallicRoughness.baseColorFactor[0];
         constants.color_factors.y = tiny_mat_data.pbrMetallicRoughness.baseColorFactor[1];
         constants.color_factors.z = tiny_mat_data.pbrMetallicRoughness.baseColorFactor[2];
@@ -213,7 +213,7 @@ std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator al
 
         // Fill material resources
 
-        GLTFMetallic_Roughness::MaterialResources resources;
+        GLTFHDRMaterial::MaterialResources resources;
 
         if(includes_color_texture) { // COLOR
             tinygltf::Texture& texture = tinyModel->textures[base_color_tex_index];
@@ -252,7 +252,7 @@ std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator al
         }
 
         resources.data_buffer = out_gltf->material_data_buffer.buffer;
-        resources.data_buffer_offset = i * sizeof(GLTFMetallic_Roughness::MaterialConstants);
+        resources.data_buffer_offset = i * sizeof(GLTFHDRMaterial::MaterialConstants);
 
         std::shared_ptr<Material> our_material = std::make_shared<Material>();
         our_material->data = material_creator.write_material(device, pass_type, resources, out_gltf->material_descriptor_pool);
@@ -399,7 +399,7 @@ std::shared_ptr<GLTFFile> GLTFLoader::load_file(VkDevice device, VmaAllocator al
         }
 
         // upload mesh data to the GPU
-        mesh->mesh_buffers = vk_util::upload_mesh(indices, vertices, allocator, device, immediate_submit_command_buffer, tiny_mesh.name);
+        mesh->mesh_buffers = vk_util::upload_mesh<Vertex>(indices, vertices, allocator, device, immediate_submit_command_buffer, tiny_mesh.name);
 
         out_gltf->meshes.push_back(mesh);
     }

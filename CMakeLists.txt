@@ -52,8 +52,8 @@ add_executable(VulkanEngine main.cpp
         ImmediateSubmitCommandBuffer.cpp
         ImmediateSubmitCommandBuffer.hpp
         VulkanImageUtility.cpp
-        GLTFMetallic_Roughness.cpp
-        GLTFMetallic_Roughness.hpp
+        GLTFHDRMaterial.cpp
+        GLTFHDRMaterial.hpp
         SceneGraphMembers.hpp
         SceneGraphMembers.cpp
         SimpleCamera.cpp
@@ -65,6 +65,11 @@ add_executable(VulkanEngine main.cpp
         VulkanGeneralUtility.cpp
         ShadowPipeline.cpp
         ShadowPipeline.hpp
+        ForwardRenderer.cpp
+        ForwardRenderer.hpp
+        EngineStats.hpp
+        DeferredRenderer.cpp
+        DeferredRenderer.hpp
 )
 
 # COMPILE SHADERS

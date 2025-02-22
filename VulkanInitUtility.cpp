@@ -185,8 +185,7 @@ namespace vk_init {
     }
 
 
-VkRenderingInfo get_rendering_info(VkExtent2D render_extent, const std::vector<VkRenderingAttachmentInfo>& color_attachments, VkRenderingAttachmentInfo* depth_attachment) {
-
+    VkRenderingInfo get_rendering_info(VkExtent2D render_extent, const std::vector<VkRenderingAttachmentInfo>& color_attachments, VkRenderingAttachmentInfo* depth_attachment) {
         uint32_t color_attachment_count = static_cast<uint32_t>(color_attachments.size());
 
         VkRenderingInfo info = {

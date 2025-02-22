@@ -105,4 +105,13 @@ void PhysicalDevice::choose_and_init(VkInstance instance, VkSurfaceKHR surface) 
         fmt::print("ERROR! possibly no formats or present modes. format count {}, present mode count{}\n", format_count, present_mode_count);
     }
 
+    VkPhysicalDeviceProperties2 device_properties = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2
+    };
+    vkGetPhysicalDeviceProperties2(physical_device, &device_properties);
+
+    fmt::print("Max color attachments: {}\n", device_properties.properties.limits.maxColorAttachments);
+
+
+
 }

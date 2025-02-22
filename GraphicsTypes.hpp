@@ -62,6 +62,13 @@ struct alignas(16) Vertex {
     }
 };
 
+struct alignas(16) DeferredLightingTriangleVertex {
+    glm::vec3 pos = glm::vec3();
+    uint32_t buf = 0;
+    glm::vec2 tex_coord = glm::vec2();
+    // TODO do i need padding here??
+};
+
 // GLTF Loader data structures VVVVVV
 
 struct SurfaceDrawData {
@@ -97,7 +104,8 @@ struct MaterialPipeline {
 };
 
 struct MaterialInstance {
-    MaterialPipeline* pipeline;
+    MaterialPipeline* forward_rendering_pipeline;
+    MaterialPipeline* deferred_rendering_geometry_pipeline;
     VkDescriptorSet material_set;
     MaterialPassType pass_type;
 };

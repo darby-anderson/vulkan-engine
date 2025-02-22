@@ -74,7 +74,7 @@ void Engine::init() {
 #endif
 #if VMA_VULKAN_VERSION >= 1003000
             .vkGetDeviceBufferMemoryRequirements = vkGetDeviceBufferMemoryRequirements,
-            .vkGetDeviceImageMemoryRequirements = vkGetDeviceImageMemoryRequirements
+            .vkGetDeviceImageMemoryRequirements = vkGetDeviceImageMemoryRequirements,
 #endif
     };
 
@@ -104,6 +104,7 @@ void Engine::init() {
 
     init_imgui();
 
+    init_renderers();
 }
 
 /*
@@ -143,24 +144,24 @@ void Engine::init_draw_and_depth_images() {
     vk_debug::name_resource<VkImageView>(device.device, VK_OBJECT_TYPE_IMAGE_VIEW, draw_image.view, "Draw Image View");
 
     // DEPTH image
-    depth_image.extent = draw_image_extent;
-    depth_image.format = VK_FORMAT_D32_SFLOAT;
+//    depth_image.extent = draw_image_extent;
+//    depth_image.format = VK_FORMAT_D32_SFLOAT;
+//
+//    VkImageUsageFlags depth_image_usage_flags = {};
+//    depth_image_usage_flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+//
+//    VmaAllocationCreateInfo depth_image_alloc_info = {
+//            .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+//            .requiredFlags = VkMemoryPropertyFlags (VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+//    };
 
-    VkImageUsageFlags depth_image_usage_flags = {};
-    depth_image_usage_flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-
-    VmaAllocationCreateInfo depth_image_alloc_info = {
-            .usage = VMA_MEMORY_USAGE_GPU_ONLY,
-            .requiredFlags = VkMemoryPropertyFlags (VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-    };
-
-    VkImageCreateInfo depth_image_create_info = vk_init::get_image_create_info(depth_image.format, depth_image_usage_flags, depth_image.extent);
-    VK_CHECK(vmaCreateImage(allocator, &depth_image_create_info, &depth_image_alloc_info, &depth_image.image, &depth_image.allocation, nullptr));
-    vk_debug::name_resource<VkImage>(device.device, VK_OBJECT_TYPE_IMAGE, depth_image.image, "Depth Image");
-
-    VkImageViewCreateInfo depth_image_view_create_info = vk_init::get_image_view_create_info(depth_image.format, depth_image.image, VK_IMAGE_ASPECT_DEPTH_BIT);
-    VK_CHECK(vkCreateImageView(device.device, &depth_image_view_create_info, nullptr, &depth_image.view));
-    vk_debug::name_resource<VkImageView>(device.device, VK_OBJECT_TYPE_IMAGE_VIEW, depth_image.view, "Depth Image View");
+//    VkImageCreateInfo depth_image_create_info = vk_init::get_image_create_info(depth_image.format, depth_image_usage_flags, depth_image.extent);
+//    VK_CHECK(vmaCreateImage(allocator, &depth_image_create_info, &depth_image_alloc_info, &depth_image.image, &depth_image.allocation, nullptr));
+//    vk_debug::name_resource<VkImage>(device.device, VK_OBJECT_TYPE_IMAGE, depth_image.image, "Depth Image");
+//
+//    VkImageViewCreateInfo depth_image_view_create_info = vk_init::get_image_view_create_info(depth_image.format, depth_image.image, VK_IMAGE_ASPECT_DEPTH_BIT);
+//    VK_CHECK(vkCreateImageView(device.device, &depth_image_view_create_info, nullptr, &depth_image.view));
+//    vk_debug::name_resource<VkImageView>(device.device, VK_OBJECT_TYPE_IMAGE_VIEW, depth_image.view, "Depth Image View");
 
     // SHADOW MAP IMAGE
     shadow_map_image.extent = VkExtent3D {
@@ -191,8 +192,8 @@ void Engine::init_draw_and_depth_images() {
         vkDestroyImageView(device.device, draw_image.view, nullptr);
         vmaDestroyImage(allocator, draw_image.image, draw_image.allocation);
 
-        vkDestroyImageView(device.device, depth_image.view, nullptr);
-        vmaDestroyImage(allocator, depth_image.image, depth_image.allocation);
+//        vkDestroyImageView(device.device, depth_image.view, nullptr);
+//        vmaDestroyImage(allocator, depth_image.image, depth_image.allocation);
 
         vkDestroyImageView(device.device, shadow_map_image.view, nullptr);
         vmaDestroyImage(allocator, shadow_map_image.image, shadow_map_image.allocation);
@@ -214,6 +215,8 @@ void Engine::init_command_structures() {
 
         VkCommandBufferAllocateInfo command_buffer_allocate_info = vk_init::get_command_buffer_allocate_info(frame.command_pool, 1);
         VK_CHECK(vkAllocateCommandBuffers(device.device, &command_buffer_allocate_info, &frame.main_command_buffer));
+
+        VK_CHECK(vkAllocateCommandBuffers(device.device, &command_buffer_allocate_info, &frame.main_command_buffer_2));
 
         engine_deletion_queue.push_function([=, this]() {
             vkDestroyCommandPool(device.device, frame.command_pool, nullptr);
@@ -239,25 +242,25 @@ void Engine::init_descriptors() {
             {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
     };
 
-    global_descriptor_allocator.init_allocator(device.device, 10, sizes);
+    engine_descriptor_allocator.init_allocator(device.device, 10, sizes);
 
-    {
-        DescriptorLayoutBuilder builder;
-        builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-        draw_image_descriptor_layout = builder.build(device.device, VK_SHADER_STAGE_COMPUTE_BIT);
-    }
-
-    draw_image_descriptors = global_descriptor_allocator.allocate(device.device, draw_image_descriptor_layout, nullptr);
-
-    DescriptorWriter descriptor_writer;
-    descriptor_writer.write_image(0, draw_image.view, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-    descriptor_writer.update_set(device.device, draw_image_descriptors);
-
-    // & captures all variables by reference
-    engine_deletion_queue.push_function([&]() {
-        global_descriptor_allocator.destroy_descriptor_pools(device.device);
-        vkDestroyDescriptorSetLayout(device.device, draw_image_descriptor_layout, nullptr);
-    });
+//    {
+//        DescriptorLayoutBuilder builder;
+//        builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+//        draw_image_descriptor_layout = builder.build(device.device, VK_SHADER_STAGE_COMPUTE_BIT);
+//    }
+//
+//    draw_image_descriptors = engine_descriptor_allocator.allocate(device.device, draw_image_descriptor_layout, nullptr);
+//
+//    DescriptorWriter descriptor_writer;
+//    descriptor_writer.write_image(0, draw_image.view, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+//    descriptor_writer.update_set(device.device, draw_image_descriptors);
+//
+//    // & captures all variables by reference
+//    engine_deletion_queue.push_function([&]() {
+//        engine_descriptor_allocator.destroy_descriptor_pools(device.device);
+//        vkDestroyDescriptorSetLayout(device.device, draw_image_descriptor_layout, nullptr);
+//    });
 
     {
         DescriptorLayoutBuilder builder;
@@ -295,108 +298,120 @@ void Engine::init_descriptors() {
 }
 
 
-void Engine::init_background_pipelines() {
+//void Engine::init_background_pipelines() {
+//
+//    std::vector<VkDescriptorSetLayout> background_descriptor_layouts = {
+//            draw_image_descriptor_layout
+//    };
+//
+//    VkPushConstantRange compute_push_constant_range = {
+//            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+//            .offset = 0,
+//            .size = sizeof(BackgroundComputePushConstants),
+//    };
+//
+//    fmt::print("Compute push constant size: {}\n", sizeof(BackgroundComputePushConstants));
+//
+//    std::vector<VkPushConstantRange> background_push_constant_ranges = {
+//            compute_push_constant_range
+//    };
+//
+//    gradient_pipeline.init(
+//            device.device,
+//            "../shaders/interactive_gradient.comp.spv",
+//            background_descriptor_layouts,
+//            background_push_constant_ranges,
+//            engine_deletion_queue);
+//
+//    BackgroundComputePushConstants default_gradient_data = {
+//            .data1 = glm::vec4(1, 0, 0, 1),
+//            .data2 = glm::vec4(0, 0, 1, 1)
+//    };
+//
+//    ComputeEffect gradient_effect = {
+//            .name = "gradient effect",
+//            .pipeline = gradient_pipeline.pipeline,
+//            .layout = gradient_pipeline.layout,
+//            .data = default_gradient_data
+//    };
+//
+//    sky_pipeline.init(
+//            device.device,
+//            "../shaders/sky.comp.spv",
+//            background_descriptor_layouts,
+//            background_push_constant_ranges,
+//            engine_deletion_queue);
+//
+//    BackgroundComputePushConstants default_sky_data = {
+//            .data1 = glm::vec4(0.1, 0.2, 0.4 ,0.97),
+//    };
+//
+//    ComputeEffect sky_effect = {
+//            .name = "sky",
+//            .pipeline = sky_pipeline.pipeline,
+//            .layout = sky_pipeline.layout,
+//            .data = default_sky_data
+//    };
+//
+//    compute_effects.push_back(gradient_effect);
+//    compute_effects.push_back(sky_effect);
+//
+//}
 
-    std::vector<VkDescriptorSetLayout> background_descriptor_layouts = {
-            draw_image_descriptor_layout
-    };
-
-    VkPushConstantRange compute_push_constant_range = {
-            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-            .offset = 0,
-            .size = sizeof(BackgroundComputePushConstants),
-    };
-
-    fmt::print("Compute push constant size: {}\n", sizeof(BackgroundComputePushConstants));
-
-    std::vector<VkPushConstantRange> background_push_constant_ranges = {
-            compute_push_constant_range
-    };
-
-    gradient_pipeline.init(
-            device.device,
-            "../shaders/interactive_gradient.comp.spv",
-            background_descriptor_layouts,
-            background_push_constant_ranges,
-            engine_deletion_queue);
-
-    BackgroundComputePushConstants default_gradient_data = {
-            .data1 = glm::vec4(1, 0, 0, 1),
-            .data2 = glm::vec4(0, 0, 1, 1)
-    };
-
-    ComputeEffect gradient_effect = {
-            .name = "gradient effect",
-            .pipeline = gradient_pipeline.pipeline,
-            .layout = gradient_pipeline.layout,
-            .data = default_gradient_data
-    };
-
-    sky_pipeline.init(
-            device.device,
-            "../shaders/sky.comp.spv",
-            background_descriptor_layouts,
-            background_push_constant_ranges,
-            engine_deletion_queue);
-
-    BackgroundComputePushConstants default_sky_data = {
-            .data1 = glm::vec4(0.1, 0.2, 0.4 ,0.97),
-    };
-
-    ComputeEffect sky_effect = {
-            .name = "sky",
-            .pipeline = sky_pipeline.pipeline,
-            .layout = sky_pipeline.layout,
-            .data = default_sky_data
-    };
-
-    compute_effects.push_back(gradient_effect);
-    compute_effects.push_back(sky_effect);
-
-}
-
-void Engine::init_tone_mapping_pipeline() {
-
-    std::vector<VkDescriptorSetLayout> tone_mapping_descriptor_layouts = {
-            draw_image_descriptor_layout
-    };
-
-    VkPushConstantRange compute_push_constant_range = {
-            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-            .offset = 0,
-            .size = sizeof(ToneMappingComputePushConstants),
-    };
-
-    std::vector<VkPushConstantRange> tone_mapping_push_constant_ranges = {
-            compute_push_constant_range
-    };
-
-    tone_mapping_pipeline.init(
-            device.device,
-            "../shaders/tone_mapping.comp.spv",
-            tone_mapping_descriptor_layouts,
-            tone_mapping_push_constant_ranges,
-            engine_deletion_queue
-    );
-
-}
+//void Engine::init_tone_mapping_pipeline() {
+//
+//    std::vector<VkDescriptorSetLayout> tone_mapping_descriptor_layouts = {
+//            draw_image_descriptor_layout
+//    };
+//
+//    VkPushConstantRange compute_push_constant_range = {
+//            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+//            .offset = 0,
+//            .size = sizeof(ToneMappingComputePushConstants),
+//    };
+//
+//    std::vector<VkPushConstantRange> tone_mapping_push_constant_ranges = {
+//            compute_push_constant_range
+//    };
+//
+//    tone_mapping_pipeline.init(
+//            device.device,
+//            "../shaders/tone_mapping.comp.spv",
+//            tone_mapping_descriptor_layouts,
+//            tone_mapping_push_constant_ranges,
+//            engine_deletion_queue
+//    );
+//
+//}
 
 void Engine::init_pipelines() {
 
     // COMPUTE PIPELINES
-    init_background_pipelines();
-    init_tone_mapping_pipeline();
+//    init_background_pipelines();
+//    init_tone_mapping_pipeline();
 
     // SHADOW PIPELINE
-    shadow_pipeline.init(device.device, shadow_map_image, light_source_descriptor_set_layout);
+    shadow_pipeline = std::make_shared<ShadowPipeline>();
+    shadow_pipeline->init(device.device, shadow_map_image, light_source_descriptor_set_layout);
     engine_deletion_queue.push_function([&](){
-        shadow_pipeline.destroy_resources(device.device);
+        shadow_pipeline->destroy_resources(device.device);
     });
 
+
     // SECOND GRAPHICS PIPELINE -> METALLIC ROUGHNESS PIPELINE
-    metal_rough_material.build_pipelines(device.device, light_source_descriptor_set_layout, gpu_scene_descriptor_set_layout, shadow_map_descriptor_set_layout, draw_image, depth_image);
+    hdr_material.build_shared_resources(device.device);
+
+    // FORWARD RENDERER PIPELINES BUILT WHEN INIT-ING RENDERER
+
+//    hdr_material.build_forward_renderer_pipelines(device.device,
+//                                                          light_source_descriptor_set_layout,
+//                                                          gpu_scene_descriptor_set_layout,
+//                                                          shadow_map_descriptor_set_layout,
+//                                                          draw_image,
+//                                                          depth_image);
+
     engine_deletion_queue.push_function([&](){
-        metal_rough_material.clear_resources(device.device);
+        hdr_material.clear_resources(device.device);
     });
 }
 
@@ -422,6 +437,28 @@ void Engine::init_synch_objects() {
     }
 }
 
+void Engine::init_renderers() {
+
+    forward_renderer.init(device.device,
+                          allocator,
+                          draw_image,
+                          shadow_pipeline,
+                          gpu_scene_descriptor_set_layout,
+                          shadow_map_descriptor_set_layout,
+                          light_source_descriptor_set_layout,
+                          hdr_material);
+
+    deferred_renderer.init(device.device,
+                           allocator,
+                           draw_image,
+                           shadow_pipeline,
+                           gpu_scene_descriptor_set_layout,
+                           shadow_map_descriptor_set_layout,
+                           light_source_descriptor_set_layout,
+                           hdr_material,
+                           immediate_submit_command_buffer);
+
+}
 
 void Engine::init_default_data() {
 
@@ -448,14 +485,13 @@ void Engine::init_default_data() {
     rect_indices[4] = 1;
     rect_indices[5] = 3;
 
-    rectangle = vk_util::upload_mesh(rect_indices, rect_vertices, allocator, device.device, immediate_submit_command_buffer, "default rect");
+    rectangle = vk_util::upload_mesh<Vertex>(rect_indices, rect_vertices, allocator, device.device, immediate_submit_command_buffer, "default rect");
 
     //delete the rectangle data on engine shutdown
     engine_deletion_queue.push_function([&](){
         rectangle.index_buffer.destroy_buffer();
         rectangle.vertex_buffer.destroy_buffer();
     });
-
 
     // Image data
     VkExtent3D default_image_extent = {
@@ -521,7 +557,7 @@ void Engine::init_default_data() {
     });
 
     // CREATE DEFAULT MATERIAL
-    GLTFMetallic_Roughness::MaterialResources material_resources;
+    GLTFHDRMaterial::MaterialResources material_resources;
     material_resources.color_image = default_white_image;
     material_resources.color_sampler = default_linear_sampler;
     material_resources.metal_rough_image = default_white_image;
@@ -533,10 +569,10 @@ void Engine::init_default_data() {
 
 
     Buffer material_constants;
-    material_constants.init(allocator, sizeof(GLTFMetallic_Roughness::MaterialConstants), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+    material_constants.init(allocator, sizeof(GLTFHDRMaterial::MaterialConstants), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
     // Write the material constants buffer
-    GLTFMetallic_Roughness::MaterialConstants* material_uniform_data = (GLTFMetallic_Roughness::MaterialConstants*)material_constants.allocation->GetMappedData();
+    GLTFHDRMaterial::MaterialConstants* material_uniform_data = (GLTFHDRMaterial::MaterialConstants*)material_constants.allocation->GetMappedData();
     material_uniform_data->color_factors = glm::vec4(1, 1, 1, 1);
     material_uniform_data->metal_rough_factors = glm::vec4(1, 0, 0.5, 0);
     material_uniform_data->includes_certain_textures = glm::bvec4(true, true, true, false);
@@ -550,7 +586,7 @@ void Engine::init_default_data() {
     material_resources.data_buffer = material_constants.buffer;
     material_resources.data_buffer_offset = 0;
 
-    default_material = metal_rough_material.write_material(device.device, MaterialPassType::MainColor, material_resources, global_descriptor_allocator);
+    default_material = hdr_material.write_material(device.device, MaterialPassType::MainColor, material_resources, engine_descriptor_allocator);
 
     load_gltf_file("../models/ABeautifulGame/ABeautifulGame.gltf");
 
@@ -560,7 +596,7 @@ void Engine::load_gltf_file(const std::string& file_path) {
     // std::shared_ptr<Model> model = gltf_loader.load(file_path, override_color_with_normal);
     std::shared_ptr<GLTFFile> gltf_file = gltf_loader.load_file(device.device,
                                                                 allocator,
-                                                                metal_rough_material,
+                                                                hdr_material,
                                                                 immediate_submit_command_buffer,
                                                                 default_white_image,
                                                                 default_nearest_neighbor_sampler,
@@ -747,13 +783,13 @@ void Engine::imgui_new_frame() {
 
         }
 
-        if(ImGui::CollapsingHeader("Background Controls")) {
-            ComputeEffect& selected = compute_effects[current_compute_effect];
-            ImGui::Text("Selected effect: %s", selected.name);
-            ImGui::SliderInt("Effect Index", &current_compute_effect, 0, compute_effects.size() - 1);
-            ImGui::InputFloat4("data1", (float*) &selected.data.data1);
-            ImGui::InputFloat4("data2", (float*) &selected.data.data2);
-        }
+//        if(ImGui::CollapsingHeader("Background Controls")) {
+//            ComputeEffect& selected = compute_effects[current_compute_effect];
+//            ImGui::Text("Selected effect: %s", selected.name);
+//            ImGui::SliderInt("Effect Index", &current_compute_effect, 0, compute_effects.size() - 1);
+//            ImGui::InputFloat4("data1", (float*) &selected.data.data1);
+//            ImGui::InputFloat4("data2", (float*) &selected.data.data2);
+//        }
 
     }
     ImGui::End();
@@ -803,32 +839,61 @@ void Engine::draw() {
     VkCommandBufferBeginInfo begin_info = vk_init::get_command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
     VK_CHECK(vkBeginCommandBuffer(cmd, &begin_info));
 
-    // draw shadow map
+    VkCommandBuffer cmd2 = get_current_frame().main_command_buffer_2;
+    VK_CHECK(vkResetCommandBuffer(cmd2, 0));
+    VK_CHECK(vkBeginCommandBuffer(cmd2, &begin_info));
+
+
+
+    // minimal example
+
+//    VkRenderingAttachmentInfo normal_g_buffer_attachment = vk_init::get_color_attachment_info(draw_image.view, nullptr);
+//    std::vector<VkRenderingAttachmentInfo> color_attachment_infos = {
+//            normal_g_buffer_attachment,
+//    };
+//
+//    VkExtent2D render_extent = {
+//            .width = draw_image.extent.width,
+//            .height = draw_image.extent.height
+//    };
+//
+//    // ORIGINAL!!! VkRenderingInfo render_info = vk_init::get_rendering_info(render_extent, color_attachment_infos, &depth_attachment_info);
+//    VkRenderingInfo render_info = vk_init::get_rendering_info(render_extent, color_attachment_infos, &depth_attachment_info);
+//
+//    vkCmdBeginRendering(cmd, &render_info);
+//
+
+    // draw shadow map - This is used as an input into both the forward and deferred renderers
     // set up shadow map image to hold depth information
-    vk_image::transition_image_layout(cmd, shadow_map_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+//    vk_image::transition_image_layout(cmd, shadow_map_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+//
+//    draw_shadow_map(cmd);
+//
+//    // set up shadow map image to be read from
+//    vk_image::transition_image_layout_specify_aspect(cmd, shadow_map_image.image, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+//
+//        forward_renderer.draw(cmd,
+//                              get_current_frame().frame_descriptors,
+//                              get_current_frame().deletion_queue,
+//                              shadow_map_image,
+//                              default_linear_sampler,
+//                              scene_data,
+//                              stats,
+//                              main_draw_context,
+//                              &get_current_frame().light_data_descriptor_set);
 
-    draw_shadow_map(cmd);
+    deferred_renderer.draw(cmd2, cmd,
+                           get_current_frame().frame_descriptors,
+                           get_current_frame().deletion_queue,
+                           shadow_map_image,
+                           default_linear_sampler,
+                           default_linear_sampler,
+                           scene_data,
+                           stats,
+                           main_draw_context,
+                           &get_current_frame().light_data_descriptor_set);
 
-    // set up shadow map image to be read from
-    vk_image::transition_image_layout_specify_aspect(cmd, shadow_map_image.image, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
-
-    // transition from undefined (image either created or in unknown state), to general (for the clear operation)
-    vk_image::transition_image_layout(cmd, draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-
-    draw_background(cmd);
-
-    vk_image::transition_image_layout(cmd, draw_image.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    vk_image::transition_image_layout(cmd, depth_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
-
-    draw_geometry(cmd);
-
-    // HDR Mapping using compute shaders
-    vk_image::transition_image_layout(cmd, draw_image.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
-
-    do_tone_mapping(cmd);
-
-    // make draw image a good source, make swapchain image a good destination
-    vk_image::transition_image_layout(cmd, draw_image.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    // make swapchain a valid destination, it is the renderer's responsibility to make the draw image a valid source
     vk_image::transition_image_layout(cmd, curr_swapchain_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     // copy draw image into swapchain
@@ -898,13 +963,15 @@ void Engine::update_scene() {
 
     scene_data.ambient_color = glm::vec4(0.05f);
 
-    ComputeEffect& effect = compute_effects[current_compute_effect];
-    if(strcmp("gradient effect", effect.name) == 0) {
-        glm::vec4 additional_color = glm::mix(effect.data.data1, effect.data.data2, 0.25f);
-        scene_data.sunlight_color = glm::mix(glm::vec4(1.0f), additional_color, 0.5f);
-    } else {
-        scene_data.sunlight_color = glm::vec4(1.0f);
-    }
+//    ComputeEffect& effect = compute_effects[current_compute_effect];
+//    if(strcmp("gradient effect", effect.name) == 0) {
+//        glm::vec4 additional_color = glm::mix(effect.data.data1, effect.data.data2, 0.25f);
+//        scene_data.sunlight_color = glm::mix(glm::vec4(1.0f), additional_color, 0.5f);
+//    } else {
+//        scene_data.sunlight_color = glm::vec4(1.0f);
+//    }
+
+    scene_data.sunlight_color = glm::vec4(1.0f);
 
     // set x and z based off of sunlight angle user input
     float r = 3.0f;
@@ -947,36 +1014,6 @@ void Engine::update_scene() {
     stats.scene_update_time = elapsed.count() / 1000.f;
 }
 
-
-void Engine::draw_background(VkCommandBuffer cmd) {
-    VkClearColorValue clear_value;
-    float flash = std::abs(std::sin(frame_number / 120.f));
-    clear_value = { { 0.0f, 0.0f, flash, 1.0f } };
-
-    VkImageSubresourceRange clear_range = vk_init::get_image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
-    vkCmdClearColorImage(cmd, draw_image.image, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1, &clear_range);
-
-    ComputeEffect& current_effect = compute_effects[current_compute_effect];
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_effect.pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_effect.layout, 0, 1, &draw_image_descriptors, 0, nullptr);
-
-    vkCmdPushConstants(cmd, current_effect.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(BackgroundComputePushConstants), &current_effect.data);
-
-    // divide work into 16 parts for the 16 workgroups
-    vkCmdDispatch(cmd, std::ceil(draw_image.extent.width / 16.0), std::ceil(draw_image.extent.height / 16.0), 1);
-}
-
-void Engine::do_tone_mapping(VkCommandBuffer cmd) {
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, tone_mapping_pipeline.pipeline);
-
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, tone_mapping_pipeline.layout, 0, 1, &draw_image_descriptors, 0, nullptr);
-
-    vkCmdPushConstants(cmd, tone_mapping_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ToneMappingComputePushConstants), &tone_mapping_data);
-
-    vkCmdDispatch(cmd, std::ceil(draw_image.extent.width / 16.0), std::ceil(draw_image.extent.height / 16.0), 1);
-}
-
 void Engine::draw_shadow_map(VkCommandBuffer cmd) {
 
     VkRenderingAttachmentInfo depth_attachment_info = vk_init::get_depth_attachment_info(shadow_map_image.view);
@@ -1013,15 +1050,15 @@ void Engine::draw_shadow_map(VkCommandBuffer cmd) {
     DescriptorAllocatorGrowable& frame_descriptor_allocator = get_current_frame().frame_descriptors;
     DeletionQueue& frame_deletion_queue = get_current_frame().deletion_queue;
 
-    get_current_frame().light_data_descriptor_set = shadow_pipeline.create_frame_light_data_descriptor_set(
+    get_current_frame().light_data_descriptor_set = shadow_pipeline->create_frame_light_data_descriptor_set(
             device.device,
             light_source_data,
             allocator,
             frame_descriptor_allocator,
             frame_deletion_queue);
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline.pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline.pipeline_layout, 0, 1, &get_current_frame().light_data_descriptor_set, 0, nullptr);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline->pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline->pipeline_layout, 0, 1, &get_current_frame().light_data_descriptor_set, 0, nullptr);
 
     for(const RenderObject& draw : main_draw_context.opaque_surfaces) {
       // Tell the GPU which material-specific set of variables in memory we want to currently use
@@ -1031,109 +1068,12 @@ void Engine::draw_shadow_map(VkCommandBuffer cmd) {
                 .world_matrix = draw.transform,
                 .vertex_buffer_address = draw.vertex_buffer_address
         };
-        vkCmdPushConstants(cmd, shadow_pipeline.pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &push_constants);
+        vkCmdPushConstants(cmd, shadow_pipeline->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &push_constants);
 
         vkCmdDrawIndexed(cmd, draw.index_count, 1, draw.first_index, 0, 0);
     }
 
     vkCmdEndRendering(cmd);
-}
-
-
-void Engine::draw_geometry(VkCommandBuffer cmd) {
-
-    stats.draw_call_count = 0;
-    stats.triangle_count = 0;
-    auto draw_geometry_start = std::chrono::system_clock::now();
-
-    VkRenderingAttachmentInfo color_attachment = vk_init::get_color_attachment_info(draw_image.view, nullptr);
-    std::vector<VkRenderingAttachmentInfo> color_attachment_infos = {
-            color_attachment
-    };
-    VkRenderingAttachmentInfo depth_attachment_info = vk_init::get_depth_attachment_info(depth_image.view);
-
-    VkRenderingInfo render_info = vk_init::get_rendering_info(swapchain.extent, color_attachment_infos, &depth_attachment_info);
-
-    vkCmdBeginRendering(cmd, &render_info);
-
-    VkViewport viewport = {
-            .x = 0,
-            .y = 0,
-            .width = static_cast<float>(swapchain.extent.width),
-            .height = static_cast<float>(swapchain.extent.height),
-            .minDepth = 0.f,
-            .maxDepth = 1.f
-    };
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-    VkRect2D scissor = {
-            .offset = {
-                    .x = 0,
-                    .y = 0
-            },
-            .extent = {
-                    .width = swapchain.extent.width,
-                    .height = swapchain.extent.height,
-            }
-    };
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-    VkDescriptorSet shadow_map_descriptor_set = shadow_pipeline.create_frame_shadow_map_descriptor_set(device.device,
-                                                                                                       shadow_map_image,
-                                                                                                       default_linear_sampler,
-                                                                                                       get_current_frame().frame_descriptors,
-                                                                                                       shadow_map_descriptor_set_layout);
-
-    // Create the GPU scene data buffer for this frame
-    // This handles the data-race which may occur if we updated a uniform buffer being read-from by inflight shader executions
-    Buffer gpu_scene_data_buffer;
-    gpu_scene_data_buffer.init(allocator, sizeof(GPUSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-    get_current_frame().deletion_queue.push_function([=, this](){
-        gpu_scene_data_buffer.destroy_buffer();
-    });
-
-    // Get the memory handle mapped to the buffer's allocation
-    GPUSceneData* scene_uniform_data = (GPUSceneData*)gpu_scene_data_buffer.allocation->GetMappedData();
-    *scene_uniform_data = scene_data;
-
-    // a descriptor is a handle to an object like an image or buffer
-    // a descriptor set is a bundle of those handles
-    VkDescriptorSet global_descriptor_set = get_current_frame().frame_descriptors.allocate(device.device, gpu_scene_descriptor_set_layout, nullptr);
-
-    // write the buffer's handle into the descriptor set
-    // then update the descriptor set to use the correct buffer handle
-    DescriptorWriter writer;
-    writer.write_buffer(0, gpu_scene_data_buffer.buffer, sizeof(GPUSceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    writer.update_set(device.device, global_descriptor_set);
-
-    for(const RenderObject& draw : main_draw_context.opaque_surfaces) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->pipeline);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 0, 1, &global_descriptor_set, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 1, 1, &get_current_frame().light_data_descriptor_set, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 2, 1, &shadow_map_descriptor_set, 0, nullptr);
-
-        // Tell the GPU which material-specific set of variables in memory we want to currently use
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 3, 1, &draw.material->material_set, 0, nullptr);
-
-        vkCmdBindIndexBuffer(cmd, draw.index_buffer, 0, VK_INDEX_TYPE_UINT32);
-
-        GPUDrawPushConstants push_constants = {
-                .world_matrix = draw.transform,
-                .vertex_buffer_address = draw.vertex_buffer_address
-        };
-        vkCmdPushConstants(cmd, draw.material->pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUDrawPushConstants), &push_constants);
-
-        vkCmdDrawIndexed(cmd, draw.index_count, 1, draw.first_index, 0, 0);
-
-        stats.draw_call_count++;
-        stats.triangle_count += draw.index_count / 3;
-    }
-
-    vkCmdEndRendering(cmd);
-
-    auto draw_geometry_end = std::chrono::system_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::microseconds >(draw_geometry_end - draw_geometry_start);
-    stats.mesh_draw_time = elapsed.count() / 1000.f;
 }
 
 void Engine::draw_imgui(VkCommandBuffer cmd, VkImageView target_image_view) {
@@ -1164,3 +1104,4 @@ void Engine::resize_swapchain() {
                    window);
     swapchain_resize_requested = false;
 }
+

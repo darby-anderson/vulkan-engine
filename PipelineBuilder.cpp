@@ -4,6 +4,8 @@
 
 #include "PipelineBuilder.hpp"
 
+#include <utility>
+
 #include "VulkanInitUtility.hpp"
 #include "VulkanDebugUtility.hpp"
 
@@ -17,7 +19,7 @@ void PipelineBuilder::clear() {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO
     };
 
-    color_blend_attachment = {};
+    color_blend_attachments = {};
 
     multisampling = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO
@@ -54,8 +56,8 @@ VkPipeline PipelineBuilder::build_pipeline(VkDevice device, const std::string& n
             .pNext = nullptr,
             .logicOpEnable = VK_FALSE,
             .logicOp = VK_LOGIC_OP_COPY,
-            .attachmentCount = 1,
-            .pAttachments = &color_blend_attachment,
+            .attachmentCount = static_cast<uint32_t>(color_blend_attachments.size()),
+            .pAttachments = color_blend_attachments.data(),
     };
 
     // No need for this
@@ -134,23 +136,54 @@ void PipelineBuilder::set_multisampling_none() {
     multisampling.alphaToOneEnable = VK_FALSE;
 }
 
-void PipelineBuilder::disable_blending() {
-    color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    color_blend_attachment.blendEnable = VK_FALSE;
-}
 
-void PipelineBuilder::set_color_attachment_format(VkFormat format) {
-    color_attachment_format = format;
+void PipelineBuilder::set_single_color_attachment_format(VkFormat format) {
+    color_attachment_formats = {
+            format
+    };
 
     // need to also inform the render info struct
     render_info.colorAttachmentCount = 1;
-    render_info.pColorAttachmentFormats = &color_attachment_format;
+    render_info.pColorAttachmentFormats = color_attachment_formats.data();
+}
+
+//void PipelineBuilder::set_multiple_color_attachment_formats(std::vector<VkFormat> formats) {
+//
+//}
+
+void PipelineBuilder::set_multiple_color_attachment_formats_and_blending_styles(std::vector<VkFormat> formats, std::vector<PipelineBuilder::BlendOptions> blend_options) {
+
+    if(formats.size() != blend_options.size()) {
+        fmt::print("ERROR - PipelineBuilder - not same number of color attachments and blending styles\n");
+    }
+
+    // Color Attachment Handling
+    color_attachment_formats = std::move(formats); // copy formats into builder
+
+    // need to also inform the render info struct
+    render_info.colorAttachmentCount = color_attachment_formats.size();
+    render_info.pColorAttachmentFormats = color_attachment_formats.data();
+
+    // Color Blend Attachment Handling
+    color_blend_attachments.resize(blend_options.size());
+    for(int i = 0; i < color_blend_attachments.size(); i++) {
+        switch(blend_options[i]) {
+            case NoBlend:
+                set_disable_blending(color_blend_attachments[i]);
+                break;
+            case AdditiveBlend:
+                set_blending_additive(color_blend_attachments[i]);
+                break;
+            case AlphaBlend:
+                set_blending_alphablend(color_blend_attachments[i]);
+                break;
+        }
+    }
 }
 
 void PipelineBuilder::disable_color_attachment() {
     render_info.colorAttachmentCount = 0;
 }
-
 
 void PipelineBuilder::set_depth_format(VkFormat format) {
     render_info.depthAttachmentFormat = format;
@@ -180,8 +213,29 @@ void PipelineBuilder::enable_depth_test(bool enable_depth_write, VkCompareOp op)
     depth_stencil.maxDepthBounds = 1.f;
 }
 
+void PipelineBuilder::disable_blending() {
+    color_blend_attachments.resize(1);
+    set_disable_blending(color_blend_attachments[0]);
+}
+
+void PipelineBuilder::enable_blending_additive_for_single_attachment() {
+    color_blend_attachments.resize(1);
+    set_blending_additive(color_blend_attachments[0]);
+}
+
+void PipelineBuilder::enable_blending_alphablend() {
+    color_blend_attachments.resize(1);
+    set_blending_alphablend(color_blend_attachments[0]);
+}
+
+
+void PipelineBuilder::set_disable_blending(VkPipelineColorBlendAttachmentState& color_blend_attachment) {
+    color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    color_blend_attachment.blendEnable = VK_FALSE;
+}
+
 // blending works like: "outColor = srcColor * srcColorBlendFactor <op> dstColor * dstColorBlendFactor;"
-void PipelineBuilder::enable_blending_additive() {
+void PipelineBuilder::set_blending_additive(VkPipelineColorBlendAttachmentState& color_blend_attachment) {
     color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     color_blend_attachment.blendEnable = VK_TRUE;
     color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
@@ -192,7 +246,7 @@ void PipelineBuilder::enable_blending_additive() {
     color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
 }
 
-void PipelineBuilder::enable_blending_alphablend() {
+void PipelineBuilder::set_blending_alphablend(VkPipelineColorBlendAttachmentState& color_blend_attachment) {
     color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     color_blend_attachment.blendEnable = VK_TRUE;
     color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;

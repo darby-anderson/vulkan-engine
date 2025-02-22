@@ -68,7 +68,7 @@ VkBool32 VKAPI_PTR debugMessengerCallback(
         return VK_FALSE;
     }
 
-    fmt::print("debugMessengerCallback: |{}| Message Code: {}. Message: {}\n", severity, pCallbackData->pMessageIdName, pCallbackData->pMessage);
+    fmt::print(stderr, "debugMessengerCallback: |{}| Message Code: {}. Message: {}\n", severity, pCallbackData->pMessageIdName, pCallbackData->pMessage);
 
     return VK_FALSE;
 }

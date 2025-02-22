@@ -18,9 +18,12 @@
 #include "GLTFLoader.hpp"
 #include "ImmediateSubmitCommandBuffer.hpp"
 #include "DescriptorWriter.hpp"
-#include "GLTFMetallic_Roughness.hpp"
+#include "GLTFHDRMaterial.hpp"
 #include "SceneGraphMembers.hpp"
 #include "SimpleCamera.hpp"
+#include "EngineStats.hpp"
+#include "ForwardRenderer.hpp"
+#include "DeferredRenderer.hpp"
 
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
@@ -28,19 +31,11 @@
 #include "Input.hpp"
 #include "ShadowPipeline.hpp"
 
-struct EngineStats {
-    float frame_time;
-    float longest_frame_time = 0.0f;
-    int longest_frame_number = -1;
-    int triangle_count;
-    int draw_call_count;
-    float scene_update_time;
-    float mesh_draw_time;
-};
 
 struct FrameData {
     VkCommandPool command_pool;
     VkCommandBuffer main_command_buffer;
+    VkCommandBuffer main_command_buffer_2;
 
     // swapchain semaphore is used tell the command buffer executor we have a swapchain image ready to render into
     // render semaphore is used to tell the presentation engine the image is rendered
@@ -82,6 +77,7 @@ private:
     void init_imgui();
     void init_background_pipelines();
     void init_tone_mapping_pipeline();
+    void init_renderers();
 
     void load_gltf_file(const std::string& file_path);
 
@@ -106,21 +102,23 @@ private:
     VmaAllocator allocator;
 
     AllocatedImage draw_image;
-    AllocatedImage depth_image;
+    // AllocatedImage depth_image;
     VkExtent2D draw_extent;
 
+    ForwardRenderer forward_renderer;
+    DeferredRenderer deferred_renderer;
+
     // Shadows
-    ShadowPipeline shadow_pipeline;
+    std::shared_ptr<ShadowPipeline> shadow_pipeline;
     AllocatedImage shadow_map_image;
     VkDescriptorSetLayout shadow_map_descriptor_set_layout;
 
-    DescriptorAllocatorGrowable global_descriptor_allocator;
-    VkDescriptorSet draw_image_descriptors;
-    VkDescriptorSetLayout draw_image_descriptor_layout;
+    DescriptorAllocatorGrowable engine_descriptor_allocator;
+    // VkDescriptorSet draw_image_descriptors;
+    // VkDescriptorSetLayout draw_image_descriptor_layout;
 
     ComputePipeline gradient_pipeline;
     ComputePipeline sky_pipeline;
-
 
     ComputePipeline tone_mapping_pipeline;
     ToneMappingComputePushConstants tone_mapping_data {
@@ -138,7 +136,7 @@ private:
     LightSourceData light_source_data;
     VkDescriptorSetLayout light_source_descriptor_set_layout;
 
-    GLTFMetallic_Roughness metal_rough_material;
+    GLTFHDRMaterial hdr_material;
 
     // Default Data
     GPUMeshBuffers rectangle;
@@ -181,7 +179,7 @@ private:
 
 
     // Model Data
-    DescriptorAllocatorGrowable model_descriptor_allocator;
+    // DescriptorAllocatorGrowable model_descriptor_allocator;
 
     EngineStats stats;
 
